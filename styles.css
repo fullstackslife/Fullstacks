@@ -125,6 +125,7 @@ a {
 }
 
 .hero,
+.credibility-section,
 .positioning,
 .section,
 .why-section,
@@ -260,6 +261,7 @@ h3 {
 }
 
 .control-panel,
+.credibility-grid article,
 .service-card,
 .why-grid li,
 .case-study,
@@ -314,6 +316,45 @@ h3 {
   color: var(--text);
   font-weight: 760;
   line-height: 1.35;
+}
+
+.credibility-section {
+  padding: 32px 0 70px;
+  border-top: 1px solid var(--line);
+}
+
+.credibility-section .section-heading {
+  max-width: 780px;
+  margin-bottom: 24px;
+}
+
+.credibility-section h2 {
+  font-size: clamp(1.9rem, 3vw, 2.8rem);
+}
+
+.credibility-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.credibility-grid article {
+  min-height: 190px;
+  padding: 22px;
+  border-top: 4px solid var(--accent);
+}
+
+.credibility-grid h3 {
+  color: var(--accent-bright);
+  font-size: 0.98rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.credibility-grid p {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 0.96rem;
 }
 
 .positioning {
@@ -667,6 +708,10 @@ h3 {
 }
 
 @media (max-width: 1020px) {
+  .credibility-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .briefing-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -683,6 +728,7 @@ h3 {
   }
 
   .hero,
+  .credibility-section,
   .positioning,
   .why-section,
   .split-section,
@@ -712,6 +758,7 @@ h3 {
 
 @media (max-width: 680px) {
   .hero,
+  .credibility-section,
   .positioning,
   .section,
   .why-section,
@@ -776,6 +823,7 @@ h3 {
   }
 
   .service-card ul,
+  .credibility-grid,
   .form-grid,
   .briefing-grid {
     grid-template-columns: 1fr;

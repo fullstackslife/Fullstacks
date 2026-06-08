@@ -1,29 +1,58 @@
 # FullStacks.ink
 
-## Operational Stabilization, AI Systems, and Turnaround Support
+## Hotel Operations, Task Force Leadership, and Property Recovery
 
-I help businesses regain control when operations, staffing, systems, and reporting start breaking at the same time.
+FullStacks.ink supports hotels, ownership groups, management companies, asset managers, receivers, lenders, franchisees, and independent owners when properties need experienced operational execution.
 
-My work sits at the intersection of hands-on operations and technical problem solving. I support distressed hotels, growing companies, and overloaded teams by building practical systems, stabilizing daily execution, and turning messy situations into clear action plans.
+The positioning is hospitality-first:
+
+- Hotel operations support
+- Task force GM support
+- Property recovery
+- Revenue visibility
+- Operational systems
+- Vendor coordination
+- Staffing support
+- Hospitality execution
+
+Technology remains a supporting capability. It should be presented as a practical tool used to improve visibility, reporting, handoffs, intake, follow-up, and operational control, not as the primary offer.
 
 ## Core Services
 
-### Hotel Stabilization & Task-Force Operations
+### Task Force Operations
 
-Support for distressed hospitality assets, including room recovery planning, staffing support, vendor coordination, guest experience recovery, management transition, and operational due diligence.
+Leadership coverage and property-level execution when a hotel needs competent operating support, staff direction, department coordination, owner updates, and follow-through.
 
-### AI Development & Automation
+### Property Recovery
 
-Custom AI workflows, reporting tools, document automation, internal assistants, spreadsheet cleanup, SOP generation, and operational dashboards.
+Turnaround support for distressed or underperforming properties, including room recovery planning, vendor coordination, maintenance tracking, operational audits, process repair, and priority execution.
 
-### Business Process Stabilization
+### Revenue and Reporting
 
-Practical support for companies dealing with broken workflows, weak reporting, staffing gaps, vendor issues, and unclear accountability.
+Visibility into revenue, AR, labor, room inventory, stale data, and owner reporting so operators can act on what is actually happening.
 
-## Why FullStacks
+### Staff Systems and Training
 
-Most business problems are not isolated. A revenue issue may really be a staffing issue. A staffing issue may really be a training issue. A training issue may really be a systems issue.
+SOP cleanup, shift handoffs, checklists, accountability rhythms, manager training, and follow-up routines that help teams execute consistently under pressure.
 
-FullStacks.ink exists to look at the whole stack: people, process, platforms, property, payments, and performance.
+### Supporting Technology
 
-The goal is simple: identify what is broken, prioritize what matters, and build systems that keep working after the emergency passes.
+Operational tools, reporting views, forms, intake flows, integrations, data cleanup, and technical fixes that support the property and team.
+
+## Founder Positioning
+
+Brian Salvatore has worked in hospitality operations, property recovery, task force leadership, revenue visibility, vendor coordination, staffing support, and operational systems implementation.
+
+The founder section should sound executive and operational. Avoid informal phrases such as "operator-builder-fixer" and avoid startup-style positioning.
+
+## Representative Experience
+
+Use generalized, factual examples without property names, fake metrics, invented testimonials, or confidential client details:
+
+- Hotel operational recovery
+- Out-of-order inventory reduction initiatives
+- Vendor coordination and project oversight
+- Revenue and AR reporting visibility
+- Staffing stabilization and process implementation
+- Property technology deployment
+- Multi-department operational leadership
