@@ -2,6 +2,8 @@
 
 Static personal/business website for Brian Salvatore and the FullStacks.ink brand.
 
+Production URL: `https://fullstacks-production.up.railway.app/`
+
 ## Local Development
 
 Install dependencies, build the static files, and start the production server:
@@ -33,6 +35,7 @@ The server reads Railway's `PORT` environment variable and binds to `0.0.0.0`. N
 
 - `index.html` - semantic one-page website content
 - `styles.css` - responsive visual design
+- `favicon.svg` - site favicon
 - `server.js` - minimal production static server for Railway
 - `scripts/build.js` - copies static assets into `dist/`
 - `docs/` - source prompts and positioning notes
