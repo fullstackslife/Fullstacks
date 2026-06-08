@@ -1,15 +1,5 @@
 (function () {
-  const form = document.querySelector("#inquiry-form");
-  const status = document.querySelector("#inquiry-status");
-
-  if (!form || !status) {
-    return;
-  }
-
-  const submitButton = form.querySelector('button[type="submit"]');
-  const defaultButtonText = submitButton ? submitButton.textContent : "Send Inquiry";
-
-  function setStatus(message, type) {
+  function setStatus(status, message, type) {
     status.textContent = message;
     status.classList.remove("success", "error");
 
@@ -18,55 +8,120 @@
     }
   }
 
-  function getPayload() {
-    const formData = new FormData(form);
-    return {
-      name: String(formData.get("name") || "").trim(),
-      email: String(formData.get("email") || "").trim(),
-      phone: String(formData.get("phone") || "").trim(),
-      company: String(formData.get("company") || "").trim(),
-      inquiryType: String(formData.get("inquiryType") || "").trim(),
-      urgency: String(formData.get("urgency") || "").trim(),
-      message: String(formData.get("message") || "").trim(),
-      website: String(formData.get("website") || "").trim()
-    };
+  function getString(formData, name) {
+    return String(formData.get(name) || "").trim();
   }
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    setStatus("", "");
+  function getCheckedValues(form, name) {
+    return Array.from(form.querySelectorAll(`input[name="${name}"]:checked`)).map((input) =>
+      input.value.trim()
+    );
+  }
 
-    if (!form.reportValidity()) {
+  function setupForm(config) {
+    const form = document.querySelector(config.formSelector);
+    const status = document.querySelector(config.statusSelector);
+
+    if (!form || !status) {
       return;
     }
 
-    if (submitButton) {
-      submitButton.disabled = true;
-      submitButton.textContent = "Sending...";
-    }
+    const submitButton = form.querySelector('button[type="submit"]');
+    const defaultButtonText = submitButton ? submitButton.textContent : config.defaultButtonText;
 
-    try {
-      const response = await fetch("/api/inquiry", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(getPayload())
-      });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus(status, "", "");
 
-      if (!response.ok) {
-        throw new Error("Inquiry request failed");
+      if (!form.reportValidity()) {
+        return;
       }
 
-      form.reset();
-      setStatus("Thanks. Your inquiry has been received.", "success");
-    } catch (error) {
-      setStatus("Something went wrong. Please try again.", "error");
-    } finally {
       if (submitButton) {
-        submitButton.disabled = false;
-        submitButton.textContent = defaultButtonText;
+        submitButton.disabled = true;
+        submitButton.textContent = "Sending...";
       }
+
+      try {
+        const response = await fetch(config.endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(config.getPayload(form))
+        });
+
+        if (!response.ok) {
+          throw new Error("Request failed");
+        }
+
+        form.reset();
+        setStatus(status, config.successMessage, "success");
+      } catch (error) {
+        setStatus(status, "Something went wrong. Please try again.", "error");
+      } finally {
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent = defaultButtonText;
+        }
+      }
+    });
+  }
+
+  setupForm({
+    formSelector: "#inquiry-form",
+    statusSelector: "#inquiry-status",
+    endpoint: "/api/inquiry",
+    defaultButtonText: "Send Inquiry",
+    successMessage: "Thanks. Your property support inquiry has been received.",
+    getPayload(form) {
+      const formData = new FormData(form);
+      return {
+        name: getString(formData, "name"),
+        email: getString(formData, "email"),
+        phone: getString(formData, "phone"),
+        company: getString(formData, "company"),
+        propertyName: getString(formData, "propertyName"),
+        propertyLocation: getString(formData, "propertyLocation"),
+        brandFlag: getString(formData, "brandFlag"),
+        roomCount: getString(formData, "roomCount"),
+        propertyRelationship: getString(formData, "propertyRelationship"),
+        currentChallenge: getString(formData, "currentChallenge"),
+        urgency: getString(formData, "urgency"),
+        message: getString(formData, "message"),
+        website: getString(formData, "website")
+      };
+    }
+  });
+
+  setupForm({
+    formSelector: "#consultant-form",
+    statusSelector: "#consultant-status",
+    endpoint: "/api/consultant-application",
+    defaultButtonText: "Submit Consultant Inquiry",
+    successMessage: "Thanks. Your consultant inquiry has been received.",
+    getPayload(form) {
+      const formData = new FormData(form);
+      return {
+        firstName: getString(formData, "firstName"),
+        lastName: getString(formData, "lastName"),
+        email: getString(formData, "email"),
+        phone: getString(formData, "phone"),
+        city: getString(formData, "city"),
+        state: getString(formData, "state"),
+        currentRole: getString(formData, "currentRole"),
+        yearsExperience: getString(formData, "yearsExperience"),
+        travelPreference: getString(formData, "travelPreference"),
+        availability: getString(formData, "availability"),
+        brandsWorkedWith: getString(formData, "brandsWorkedWith"),
+        managementCompanies: getString(formData, "managementCompanies"),
+        linkedinUrl: getString(formData, "linkedinUrl"),
+        resumeUrl: getString(formData, "resumeUrl"),
+        compensationExpectations: getString(formData, "compensationExpectations"),
+        specialtyAreas: getCheckedValues(form, "specialtyAreas"),
+        notes: getString(formData, "notes"),
+        website: getString(formData, "website")
+      };
     }
   });
 })();
