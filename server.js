@@ -11,9 +11,11 @@ const databaseUrl = process.env.DATABASE_URL;
 const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
+      connectionTimeoutMillis: 10000,
       ssl: databaseUrl.includes("railway.internal") ? false : { rejectUnauthorized: false }
     })
   : null;
+let databaseReady = false;
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -147,12 +149,27 @@ function getClientIp(req) {
   return req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "";
 }
 
+async function runMigration(description, sql) {
+  try {
+    await pool.query(sql);
+    return true;
+  } catch (error) {
+    console.error(`Database migration failed: ${description}`);
+    console.error(error && error.message ? error.message : error);
+    return false;
+  }
+}
+
 async function initializeDatabase() {
   if (!pool) {
-    return;
+    console.warn("DATABASE_URL is not configured. Form submissions will return storage errors.");
+    return false;
   }
 
-  await pool.query(`
+  const migrations = [
+    await runMigration(
+      "create inquiries table",
+      `
     CREATE TABLE IF NOT EXISTS inquiries (
       id SERIAL PRIMARY KEY,
       created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -167,9 +184,11 @@ async function initializeDatabase() {
       user_agent TEXT,
       ip TEXT
     )
-  `);
-
-  await pool.query(`
+  `
+    ),
+    await runMigration(
+      "add property support inquiry columns",
+      `
     ALTER TABLE inquiries
       ADD COLUMN IF NOT EXISTS property_name TEXT,
       ADD COLUMN IF NOT EXISTS property_location TEXT,
@@ -177,9 +196,11 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS room_count TEXT,
       ADD COLUMN IF NOT EXISTS property_relationship TEXT,
       ADD COLUMN IF NOT EXISTS current_challenge TEXT
-  `);
-
-  await pool.query(`
+  `
+    ),
+    await runMigration(
+      "create consultant applications table",
+      `
     CREATE TABLE IF NOT EXISTS consultant_applications (
       id SERIAL PRIMARY KEY,
       created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -205,7 +226,17 @@ async function initializeDatabase() {
       user_agent TEXT,
       ip TEXT
     )
-  `);
+  `
+    )
+  ];
+
+  databaseReady = migrations.every(Boolean);
+
+  if (!databaseReady) {
+    console.warn("Database initialization completed with errors. Site will serve, but form storage may fail.");
+  }
+
+  return databaseReady;
 }
 
 function validateInquiry(payload) {
@@ -281,7 +312,7 @@ async function handleInquiry(req, res) {
     return;
   }
 
-  if (!pool) {
+  if (!pool || !databaseReady) {
     sendJson(res, 503, { ok: false, error: "Inquiry storage is not configured." });
     return;
   }
@@ -450,7 +481,7 @@ async function handleConsultantApplication(req, res) {
     return;
   }
 
-  if (!pool) {
+  if (!pool || !databaseReady) {
     sendJson(res, 503, { ok: false, error: "Consultant application storage is not configured." });
     return;
   }
@@ -585,7 +616,10 @@ initializeDatabase()
       console.log(`Server running on port ${PORT}`);
     });
   })
-  .catch(() => {
-    console.error("Inquiry database initialization failed.");
-    process.exit(1);
+  .catch((error) => {
+    console.error("Unexpected database initialization error.");
+    console.error(error && error.message ? error.message : error);
+    server.listen(PORT, HOST, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
   });
