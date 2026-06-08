@@ -2,7 +2,7 @@
 
 Static personal/business website for Brian Salvatore and the FullStacks.ink brand.
 
-Production URL: `https://fullstacks-production.up.railway.app/`
+Live site: `https://fullstacks.ink/`
 
 ## Local Development
 
@@ -31,9 +31,9 @@ npm run start
 
 The server reads Railway's `PORT` environment variable and binds to `0.0.0.0`.
 
-The static site can run without database configuration, but the inquiry form requires Railway PostgreSQL. Add a PostgreSQL service to the Railway project and attach the generated `DATABASE_URL` through Railway variables. Do not commit, paste, print, or log the value.
+The static site can run without database configuration, but the inquiry form requires Railway PostgreSQL. Attach Railway PostgreSQL to the web service so Railway provides `DATABASE_URL` as a service variable. The server reads `DATABASE_URL` from Railway variables only. Do not commit, paste, print, or log the value.
 
-For local testing, prefer Railway CLI environment injection so the database variable is provided by Railway rather than stored in a local `.env` file. If you do use local environment files for other workflows, keep them uncommitted.
+For local database testing, use Railway CLI environment injection so `DATABASE_URL` is supplied by Railway for the command session instead of being copied into a local file. If you do use local environment files for other workflows, keep them uncommitted.
 
 ## Inquiry Capture
 

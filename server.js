@@ -101,16 +101,16 @@ async function initializeDatabase() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS inquiries (
-      id BIGSERIAL PRIMARY KEY,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      name VARCHAR(120) NOT NULL,
-      email VARCHAR(180) NOT NULL,
-      phone VARCHAR(60),
-      company VARCHAR(180),
-      inquiry_type VARCHAR(120) NOT NULL,
-      urgency VARCHAR(120),
+      id SERIAL PRIMARY KEY,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      company TEXT,
+      inquiry_type TEXT NOT NULL,
+      urgency TEXT,
       message TEXT NOT NULL,
-      source VARCHAR(120) NOT NULL DEFAULT 'fullstacks.ink',
+      source TEXT DEFAULT 'fullstacks.ink',
       user_agent TEXT,
       ip TEXT
     )
