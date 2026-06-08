@@ -1,13 +1,19 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { Pool } = require("pg");
 
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0";
 const publicDir = path.join(__dirname, "dist");
-const dataDir = path.join(__dirname, "data");
-const inquiryFile = path.join(dataDir, "inquiries.jsonl");
 const maxBodySize = 32 * 1024;
+const databaseUrl = process.env.DATABASE_URL;
+const pool = databaseUrl
+  ? new Pool({
+      connectionString: databaseUrl,
+      ssl: databaseUrl.includes("railway.internal") ? false : { rejectUnauthorized: false }
+    })
+  : null;
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -88,6 +94,29 @@ function getClientIp(req) {
   return req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "";
 }
 
+async function initializeDatabase() {
+  if (!pool) {
+    return;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inquiries (
+      id BIGSERIAL PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      name VARCHAR(120) NOT NULL,
+      email VARCHAR(180) NOT NULL,
+      phone VARCHAR(60),
+      company VARCHAR(180),
+      inquiry_type VARCHAR(120) NOT NULL,
+      urgency VARCHAR(120),
+      message TEXT NOT NULL,
+      source VARCHAR(120) NOT NULL DEFAULT 'fullstacks.ink',
+      user_agent TEXT,
+      ip TEXT
+    )
+  `);
+}
+
 function validateInquiry(payload) {
   const inquiry = {
     name: cleanString(payload.name),
@@ -146,8 +175,12 @@ async function handleInquiry(req, res) {
     return;
   }
 
+  if (!pool) {
+    sendJson(res, 503, { ok: false, error: "Inquiry storage is not configured." });
+    return;
+  }
+
   const record = {
-    timestamp: new Date().toISOString(),
     name: validation.inquiry.name,
     email: validation.inquiry.email,
     phone: validation.inquiry.phone,
@@ -161,8 +194,35 @@ async function handleInquiry(req, res) {
   };
 
   try {
-    fs.mkdirSync(dataDir, { recursive: true });
-    fs.appendFileSync(inquiryFile, `${JSON.stringify(record)}\n`, "utf8");
+    await pool.query(
+      `
+        INSERT INTO inquiries (
+          name,
+          email,
+          phone,
+          company,
+          inquiry_type,
+          urgency,
+          message,
+          source,
+          user_agent,
+          ip
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `,
+      [
+        record.name,
+        record.email,
+        record.phone || null,
+        record.company || null,
+        record.inquiryType,
+        record.urgency || null,
+        record.message,
+        record.source,
+        record.userAgent || null,
+        record.ip || null
+      ]
+    );
     sendJson(res, 200, { ok: true });
   } catch (error) {
     sendJson(res, 500, { ok: false, error: "Unable to save inquiry." });
@@ -228,6 +288,13 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+initializeDatabase()
+  .then(() => {
+    server.listen(PORT, HOST, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch(() => {
+    console.error("Inquiry database initialization failed.");
+    process.exit(1);
+  });

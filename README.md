@@ -29,13 +29,23 @@ npm run build
 npm run start
 ```
 
-The server reads Railway's `PORT` environment variable and binds to `0.0.0.0`. No required environment variables are needed for this static site.
+The server reads Railway's `PORT` environment variable and binds to `0.0.0.0`.
+
+The static site can run without database configuration, but the inquiry form requires Railway PostgreSQL. Add a PostgreSQL service to the Railway project and attach the generated `DATABASE_URL` through Railway variables. Do not commit, paste, print, or log the value.
+
+For local testing, prefer Railway CLI environment injection so the database variable is provided by Railway rather than stored in a local `.env` file. If you do use local environment files for other workflows, keep them uncommitted.
 
 ## Inquiry Capture
 
-The contact form posts to `POST /api/inquiry`. For now, valid inquiries are temporarily appended to `data/inquiries.jsonl` as JSONL records. The server creates the `data/` directory if needed, and `data/*.jsonl` is ignored by git so real inquiry data is not committed.
+The contact form posts to `POST /api/inquiry`. When `DATABASE_URL` is present, the server creates the `inquiries` table on startup if it does not already exist, then stores valid submissions in PostgreSQL.
 
-TODO: Replace this local JSONL capture with email delivery, database storage, or CRM integration before relying on it for long-term lead handling. Railway filesystem storage may be ephemeral and should not be treated as durable production storage.
+If `DATABASE_URL` is missing, the homepage still loads normally, but inquiry submissions return:
+
+```json
+{ "ok": false, "error": "Inquiry storage is not configured." }
+```
+
+TODO: Add email delivery or CRM notification after PostgreSQL capture so new inquiries are actively surfaced.
 
 ## Project Structure
 
