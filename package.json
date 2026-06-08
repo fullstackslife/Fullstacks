@@ -5,6 +5,7 @@
   "description": "Static FullStacks.ink website served by a minimal Railway-compatible Node server.",
   "scripts": {
     "build": "node scripts/build.js",
+    "migrate": "node scripts/migrate.js",
     "start": "node server.js"
   },
   "engines": {

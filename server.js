@@ -210,7 +210,7 @@ async function initializeDatabase() {
       phone TEXT NOT NULL,
       city TEXT NOT NULL,
       state TEXT NOT NULL,
-      current_role TEXT NOT NULL,
+      current_hospitality_role TEXT NOT NULL,
       years_experience TEXT NOT NULL,
       travel_preference TEXT NOT NULL,
       availability TEXT NOT NULL,
@@ -227,6 +227,27 @@ async function initializeDatabase() {
       ip TEXT
     )
   `
+    ),
+    await runMigration(
+      "index consultant applications by created date",
+      `
+    CREATE INDEX IF NOT EXISTS consultant_applications_created_at_idx
+      ON consultant_applications (created_at DESC)
+  `
+    ),
+    await runMigration(
+      "index consultant applications by status",
+      `
+    CREATE INDEX IF NOT EXISTS consultant_applications_status_idx
+      ON consultant_applications (status)
+  `
+    ),
+    await runMigration(
+      "index consultant applications by email",
+      `
+    CREATE INDEX IF NOT EXISTS consultant_applications_email_idx
+      ON consultant_applications (email)
+  `
     )
   ];
 
@@ -234,6 +255,8 @@ async function initializeDatabase() {
 
   if (!databaseReady) {
     console.warn("Database initialization completed with errors. Site will serve, but form storage may fail.");
+  } else {
+    console.log("Database initialization completed successfully.");
   }
 
   return databaseReady;
@@ -498,7 +521,7 @@ async function handleConsultantApplication(req, res) {
           phone,
           city,
           state,
-          current_role,
+          current_hospitality_role,
           years_experience,
           travel_preference,
           availability,
