@@ -840,7 +840,11 @@ async function initializeDatabase() {
         'Wyndham / La Quinta',
         85,
         'Active'
-      WHERE NOT EXISTS (SELECT 1 FROM properties LIMIT 1)
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM properties
+        WHERE name = 'La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg'
+      )
       `
     ),
     await runMigration(
@@ -945,7 +949,12 @@ async function initializeDatabase() {
         ('334', 3, 'NDD2', 'In Service', NULL,       'Medium', 'odor, no towels')
       ) AS v(room_number, floor, room_type, status, oos_reason, priority, notes)
       WHERE p.name = 'La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg'
-      ON CONFLICT (property_id, room_number) DO NOTHING
+        AND NOT EXISTS (
+          SELECT 1
+          FROM rooms existing
+          WHERE existing.property_id = p.id
+            AND existing.room_number = v.room_number
+        )
       `
     )
   ];
