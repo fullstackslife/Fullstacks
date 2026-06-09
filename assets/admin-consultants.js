@@ -8,6 +8,7 @@
   let pageTotal = 0;
   let pageHasMore = false;
 
+  const siteHeader = document.querySelector("#admin-site-header");
   const accessPanel = document.querySelector("#admin-access-panel");
   const dashboard = document.querySelector("#admin-dashboard");
   const tokenForm = document.querySelector("#admin-token-form");
@@ -92,11 +93,13 @@
   }
 
   function showDashboard() {
+    if (siteHeader) siteHeader.hidden = false;
     accessPanel.hidden = true;
     dashboard.hidden = false;
   }
 
   function showAccess() {
+    if (siteHeader) siteHeader.hidden = true;
     dashboard.hidden = true;
     accessPanel.hidden = false;
   }
