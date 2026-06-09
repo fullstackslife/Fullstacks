@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>My Assignments | FullStacks.ink</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .consultant-shell {
+        min-height: 100vh;
+        background: var(--color-bg, #0a0a0a);
+        color: var(--color-text, #f0f0f0);
+      }
+      .consultant-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.9rem 1.5rem;
+        border-bottom: 1px solid var(--color-border, #2a2a2a);
+        background: var(--color-surface, #141414);
+      }
+      .consultant-nav .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        text-decoration: none;
+        color: inherit;
+      }
+      .consultant-nav .brand-mark {
+        background: var(--color-accent, #e8b86d);
+        color: #000;
+        font-weight: 800;
+        font-size: 0.85rem;
+        width: 2rem;
+        height: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 5px;
+        flex-shrink: 0;
+      }
+      .consultant-nav .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        font-size: 0.875rem;
+      }
+      .consultant-nav .greeting {
+        color: var(--color-muted, #888);
+      }
+      .consultant-nav button.logout-btn {
+        background: none;
+        border: 1px solid var(--color-border, #2a2a2a);
+        color: var(--color-muted, #888);
+        font-size: 0.8rem;
+        padding: 0.3rem 0.75rem;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      .consultant-nav button.logout-btn:hover {
+        border-color: #555;
+        color: #ccc;
+      }
+      .consultant-content {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem;
+      }
+      .page-heading {
+        margin-bottom: 2rem;
+      }
+      .page-heading h1 {
+        font-size: 1.6rem;
+        margin: 0 0 0.25rem;
+      }
+      .page-heading p {
+        color: var(--color-muted, #888);
+        font-size: 0.9rem;
+        margin: 0;
+      }
+      .assignment-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .assignment-card {
+        background: var(--color-surface, #141414);
+        border: 1px solid var(--color-border, #2a2a2a);
+        border-radius: 10px;
+        padding: 1.25rem 1.5rem;
+      }
+      .assignment-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .assignment-card h2 {
+        font-size: 1.05rem;
+        margin: 0 0 0.2rem;
+      }
+      .assignment-card .location {
+        font-size: 0.85rem;
+        color: var(--color-muted, #888);
+        margin: 0;
+      }
+      .status-badge {
+        display: inline-block;
+        padding: 0.25rem 0.7rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .status-Proposed   { background: #2a2a3a; color: #9b9bcc; }
+      .status-Contacted  { background: #2a2a3a; color: #9b9bcc; }
+      .status-Interviewing { background: #3a2f1a; color: #d4a843; }
+      .status-Assigned   { background: #1a3a2a; color: #4db884; }
+      .status-Active     { background: #1a3a2a; color: #4db884; }
+      .status-Completed  { background: #2a2a2a; color: #888; }
+      .status-Declined   { background: #2a1a1a; color: #cc6666; }
+      .status-Removed    { background: #2a1a1a; color: #cc6666; }
+      .assignment-meta {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        font-size: 0.82rem;
+        color: var(--color-muted, #888);
+        border-top: 1px solid var(--color-border, #2a2a2a);
+        padding-top: 0.75rem;
+        margin-top: 0.75rem;
+      }
+      .assignment-meta span strong {
+        color: var(--color-text, #f0f0f0);
+        font-weight: 600;
+      }
+      .assignment-notes {
+        margin-top: 0.75rem;
+        font-size: 0.875rem;
+        color: var(--color-muted, #aaa);
+        font-style: italic;
+        border-left: 2px solid var(--color-border, #2a2a2a);
+        padding-left: 0.75rem;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--color-muted, #888);
+      }
+      .empty-state h2 {
+        font-size: 1.1rem;
+        margin-bottom: 0.5rem;
+        color: var(--color-text, #f0f0f0);
+      }
+      #loading-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--color-muted, #888);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="consultant-shell" id="app" hidden>
+      <nav class="consultant-nav">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true">FS</span>
+          <span><strong>FullStacks.ink</strong></span>
+        </a>
+        <div class="nav-right">
+          <span class="greeting" id="nav-greeting"></span>
+          <button class="logout-btn" id="logout-btn">Sign out</button>
+        </div>
+      </nav>
+
+      <div class="consultant-content">
+        <div class="page-heading">
+          <h1>My Assignments</h1>
+          <p id="assignment-count"></p>
+        </div>
+
+        <div id="loading-state">Loading…</div>
+        <div class="assignment-list" id="assignment-list" hidden></div>
+        <div class="empty-state" id="empty-state" hidden>
+          <h2>No assignments yet</h2>
+          <p>You'll see your property assignments here once the team connects you to a project.</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const STATUS_LABELS = {
+        Proposed: "Proposed",
+        Contacted: "Contacted",
+        Interviewing: "Interviewing",
+        Assigned: "Assigned",
+        Active: "Active",
+        Completed: "Completed",
+        Declined: "Declined",
+        Removed: "Removed"
+      };
+
+      function statusBadge(status) {
+        const label = STATUS_LABELS[status] || status;
+        return `<span class="status-badge status-${status}">${label}</span>`;
+      }
+
+      function formatDate(iso) {
+        if (!iso) return "—";
+        return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      }
+
+      function renderAssignment(a) {
+        const card = document.createElement("div");
+        card.className = "assignment-card";
+        card.innerHTML = `
+          <div class="assignment-card-header">
+            <div>
+              <h2>${escHtml(a.property.name)}</h2>
+              <p class="location">${escHtml(a.property.location || "")}</p>
+            </div>
+            ${statusBadge(a.assignmentStatus)}
+          </div>
+          <div class="assignment-meta">
+            ${a.role ? `<span><strong>Role</strong> ${escHtml(a.role)}</span>` : ""}
+            ${a.property.brandFlag ? `<span><strong>Brand</strong> ${escHtml(a.property.brandFlag)}</span>` : ""}
+            ${a.property.totalRooms ? `<span><strong>Rooms</strong> ${a.property.totalRooms}</span>` : ""}
+            ${a.property.lifecycleStatus ? `<span><strong>Stage</strong> ${escHtml(a.property.lifecycleStatus)}</span>` : ""}
+            <span><strong>Assigned</strong> ${formatDate(a.assignedAt)}</span>
+          </div>
+          ${a.notes ? `<div class="assignment-notes">${escHtml(a.notes)}</div>` : ""}
+        `;
+        return card;
+      }
+
+      function escHtml(str) {
+        return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+
+      async function init() {
+        // Check auth
+        let me;
+        try {
+          const res = await fetch("/api/consultant/me");
+          const data = await res.json();
+          if (!data.ok) {
+            window.location.href = "/consultant/login";
+            return;
+          }
+          me = data.consultant;
+        } catch {
+          window.location.href = "/consultant/login";
+          return;
+        }
+
+        document.getElementById("nav-greeting").textContent = `${me.firstName} ${me.lastName}`;
+        document.getElementById("app").removeAttribute("hidden");
+
+        // Load assignments
+        try {
+          const res = await fetch("/api/consultant/dashboard");
+          const data = await res.json();
+          document.getElementById("loading-state").hidden = true;
+
+          if (!data.ok || !data.assignments.length) {
+            document.getElementById("empty-state").removeAttribute("hidden");
+            document.getElementById("assignment-count").textContent = "No active assignments.";
+            return;
+          }
+
+          const count = data.assignments.length;
+          document.getElementById("assignment-count").textContent =
+            `${count} assignment${count === 1 ? "" : "s"}`;
+
+          const list = document.getElementById("assignment-list");
+          list.removeAttribute("hidden");
+          for (const a of data.assignments) {
+            list.appendChild(renderAssignment(a));
+          }
+        } catch {
+          document.getElementById("loading-state").textContent = "Failed to load assignments.";
+        }
+      }
+
+      document.getElementById("logout-btn").addEventListener("click", async () => {
+        await fetch("/api/consultant/logout", { method: "POST" }).catch(() => {});
+        window.location.href = "/consultant/login";
+      });
+
+      init();
+    </script>
+  </body>
+</html>

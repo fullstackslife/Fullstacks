@@ -8,6 +8,8 @@ const assetDir = path.join(root, "assets");
 const distAssetDir = path.join(dist, "assets");
 const adminDir = path.join(root, "admin");
 const distAdminDir = path.join(dist, "admin");
+const consultantDir = path.join(root, "consultant");
+const distConsultantDir = path.join(dist, "consultant");
 
 fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(dist, { recursive: true });
@@ -22,6 +24,10 @@ if (fs.existsSync(assetDir)) {
 
 if (fs.existsSync(adminDir)) {
   fs.cpSync(adminDir, distAdminDir, { recursive: true });
+}
+
+if (fs.existsSync(consultantDir)) {
+  fs.cpSync(consultantDir, distConsultantDir, { recursive: true });
 }
 
 console.log(`Built ${files.length} files and assets into dist/`);
