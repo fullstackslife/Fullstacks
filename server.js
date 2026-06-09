@@ -266,6 +266,133 @@ function mapInquiry(row) {
   };
 }
 
+// ============================================================
+// Email Notifications — Resend
+// Required environment variables:
+// NOTIFICATION_EMAIL_TO   — Admin email address to receive notifications
+// NOTIFICATION_EMAIL_FROM — Verified sender address (must match your Resend domain)
+// RESEND_API_KEY          — API key from resend.com
+//
+// If any of these are missing, email notifications are disabled silently.
+// The site will still function normally without email configured.
+// ============================================================
+
+const resendApiKey = process.env.RESEND_API_KEY || "";
+const notificationEmailTo = (process.env.NOTIFICATION_EMAIL_TO || "").trim();
+const notificationEmailFrom = (process.env.NOTIFICATION_EMAIL_FROM || "").trim();
+const emailEnabled = Boolean(resendApiKey && notificationEmailTo && notificationEmailFrom);
+let resendClient = null;
+
+if (emailEnabled) {
+  const { Resend } = require("resend");
+  resendClient = new Resend(resendApiKey);
+  console.log(`Email notifications: enabled (sending to ${notificationEmailTo})`);
+} else {
+  console.log("Email notifications: disabled (RESEND_API_KEY not set)");
+}
+
+async function sendNewInquiryNotification(record) {
+  if (!emailEnabled || !resendClient) {
+    return;
+  }
+
+  const submittedAt = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  }).format(new Date());
+
+  const subject = `New Property Inquiry — ${record.propertyName || record.company || "Unknown"} — ${record.urgency || "Unknown urgency"}`;
+
+  const text = [
+    "New property support inquiry submitted on FullStacks.ink",
+    "",
+    "CONTACT",
+    `Name: ${record.name}`,
+    `Email: ${record.email}`,
+    `Phone: ${record.phone || "Not provided"}`,
+    `Company: ${record.company || "Not provided"}`,
+    "",
+    "PROPERTY",
+    `Property Name: ${record.propertyName || "Not provided"}`,
+    `Location: ${record.propertyLocation || "Not provided"}`,
+    `Brand / Flag: ${record.brandFlag || "Not provided"}`,
+    `Room Count: ${record.roomCount || "Not provided"}`,
+    "",
+    "INQUIRY",
+    `Challenge: ${record.currentChallenge || "Not provided"}`,
+    `Urgency: ${record.urgency || "Not provided"}`,
+    "Message:",
+    record.message || "",
+    "",
+    `Submitted: ${submittedAt}`,
+    "",
+    "Review this inquiry at: https://fullstacks.ink/admin/clients"
+  ].join("\n");
+
+  await resendClient.emails.send({
+    from: notificationEmailFrom,
+    to: notificationEmailTo,
+    subject,
+    text
+  });
+}
+
+async function sendNewConsultantNotification(application) {
+  if (!emailEnabled || !resendClient) {
+    return;
+  }
+
+  const submittedAt = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  }).format(new Date());
+
+  const subject = `New Consultant Application — ${application.firstName} ${application.lastName} — ${application.currentRole}`;
+
+  const specialties =
+    application.specialtyAreas && application.specialtyAreas.length > 0
+      ? application.specialtyAreas.join(", ")
+      : "Not provided";
+
+  const text = [
+    "New consultant application submitted on FullStacks.ink",
+    "",
+    "APPLICANT",
+    `Name: ${application.firstName} ${application.lastName}`,
+    `Email: ${application.email}`,
+    `Phone: ${application.phone}`,
+    `Location: ${application.city}, ${application.state}`,
+    "",
+    "EXPERIENCE",
+    `Current Role: ${application.currentRole}`,
+    `Years Experience: ${application.yearsExperience}`,
+    `Travel Preference: ${application.travelPreference}`,
+    `Availability: ${application.availability}`,
+    "",
+    "SPECIALTIES",
+    specialties,
+    "",
+    `Submitted: ${submittedAt}`,
+    "",
+    "Review this application at: https://fullstacks.ink/admin/consultants"
+  ].join("\n");
+
+  await resendClient.emails.send({
+    from: notificationEmailFrom,
+    to: notificationEmailTo,
+    subject,
+    text
+  });
+}
+
 async function runMigration(description, sql) {
   try {
     await pool.query(sql);
@@ -577,6 +704,10 @@ async function handleInquiry(req, res) {
         record.ip || null
       ]
     );
+    // Fire notification — do not await, do not block response
+    sendNewInquiryNotification(record).catch((err) => {
+      console.error("Email notification failed:", err.message);
+    });
     sendJson(res, 200, { ok: true });
   } catch (error) {
     sendJson(res, 500, { ok: false, error: "Unable to save inquiry." });
@@ -740,6 +871,10 @@ async function handleConsultantApplication(req, res) {
         getClientIp(req) || null
       ]
     );
+    // Fire notification — do not await, do not block response
+    sendNewConsultantNotification(application).catch((err) => {
+      console.error("Email notification failed:", err.message);
+    });
     sendJson(res, 200, { ok: true });
   } catch (error) {
     sendJson(res, 500, { ok: false, error: "Unable to save consultant application." });
