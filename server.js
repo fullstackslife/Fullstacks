@@ -19,6 +19,54 @@ const pool = databaseUrl
   : null;
 let databaseReady = false;
 
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const RATE_LIMIT_MAX_REQUESTS = 5;            // per IP per window
+
+class RateLimiter {
+  constructor(windowMs, maxRequests) {
+    this.windowMs = windowMs;
+    this.maxRequests = maxRequests;
+    this.requests = new Map(); // ip -> [timestamp, ...]
+  }
+
+  isAllowed(ip) {
+    if (!ip) {
+      return true; // fail open — allow requests with no identifiable IP
+    }
+
+    const now = Date.now();
+    const windowStart = now - this.windowMs;
+
+    // Filter out expired timestamps inline — cleans up as we go
+    const timestamps = (this.requests.get(ip) || []).filter((t) => t > windowStart);
+
+    if (timestamps.length >= this.maxRequests) {
+      this.requests.set(ip, timestamps);
+      return false;
+    }
+
+    timestamps.push(now);
+    this.requests.set(ip, timestamps);
+    return true;
+  }
+}
+
+const rateLimiter = new RateLimiter(RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_REQUESTS);
+
+function setSecurityHeaders(res, isHtml) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+
+  if (isHtml) {
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'"
+    );
+  }
+}
+
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -106,6 +154,7 @@ const inquiryStatuses = [
 const inquiryStatusOptions = new Set(inquiryStatuses);
 
 function sendJson(res, statusCode, payload) {
+  setSecurityHeaders(res, false);
   res.writeHead(statusCode, { "Content-Type": contentTypes[".json"] });
   res.end(JSON.stringify(payload));
 }
@@ -618,6 +667,12 @@ function validateInquiry(payload) {
 }
 
 async function handleInquiry(req, res) {
+  if (!rateLimiter.isAllowed(getClientIp(req))) {
+    console.log("Rate limit exceeded for submission endpoint");
+    sendJson(res, 429, { ok: false, error: "Too many submissions. Please try again later." });
+    return;
+  }
+
   let payload;
 
   try {
@@ -791,6 +846,12 @@ function validateConsultantApplication(payload) {
 }
 
 async function handleConsultantApplication(req, res) {
+  if (!rateLimiter.isAllowed(getClientIp(req))) {
+    console.log("Rate limit exceeded for submission endpoint");
+    sendJson(res, 429, { ok: false, error: "Too many submissions. Please try again later." });
+    return;
+  }
+
   let payload;
 
   try {
@@ -1263,6 +1324,26 @@ async function handleUpdateInquiryNotes(req, res, inquiryId) {
   }
 }
 
+async function handleHealth(req, res) {
+  let dbOk = false;
+
+  if (pool) {
+    try {
+      await Promise.race([
+        pool.query("SELECT 1"),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("DB health check timeout")), 3000)
+        )
+      ]);
+      dbOk = true;
+    } catch {
+      dbOk = false;
+    }
+  }
+
+  sendJson(res, 200, { ok: true, db: dbOk, ts: new Date().toISOString() });
+}
+
 function resolveRequestPath(url) {
   const parsedUrl = new URL(url, `http://${HOST}`);
   const safePath = path.normalize(decodeURIComponent(parsedUrl.pathname)).replace(/^(\.\.[/\\])+/, "");
@@ -1272,6 +1353,7 @@ function resolveRequestPath(url) {
 
 function serveStatic(req, res) {
   if (!fs.existsSync(publicDir)) {
+    setSecurityHeaders(res, false);
     res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Build output not found. Run npm run build before npm run start.");
     return;
@@ -1280,6 +1362,7 @@ function serveStatic(req, res) {
   const filePath = resolveRequestPath(req.url || "/");
 
   if (!filePath.startsWith(publicDir)) {
+    setSecurityHeaders(res, false);
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Forbidden");
     return;
@@ -1287,27 +1370,59 @@ function serveStatic(req, res) {
 
   fs.readFile(filePath, (error, data) => {
     if (error) {
+      // File not found — fall back to index.html (SPA behaviour)
       fs.readFile(path.join(publicDir, "index.html"), (fallbackError, fallbackData) => {
         if (fallbackError) {
+          setSecurityHeaders(res, false);
           res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
           res.end("Not found");
           return;
         }
 
-        res.writeHead(200, { "Content-Type": contentTypes[".html"] });
+        setSecurityHeaders(res, true);
+        res.writeHead(200, {
+          "Content-Type": contentTypes[".html"],
+          "Cache-Control": "no-cache"
+        });
         res.end(fallbackData);
       });
       return;
     }
 
     const extension = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { "Content-Type": contentTypes[extension] || "application/octet-stream" });
+    const isHtml = extension === ".html";
+
+    let cacheControl;
+    if (extension === ".css" || extension === ".js") {
+      cacheControl = "public, max-age=86400";
+    } else if (
+      extension === ".svg" ||
+      extension === ".png" ||
+      extension === ".jpg" ||
+      extension === ".jpeg" ||
+      extension === ".ico"
+    ) {
+      cacheControl = "public, max-age=604800";
+    } else {
+      cacheControl = "no-cache";
+    }
+
+    setSecurityHeaders(res, isHtml);
+    res.writeHead(200, {
+      "Content-Type": contentTypes[extension] || "application/octet-stream",
+      "Cache-Control": cacheControl
+    });
     res.end(data);
   });
 }
 
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url || "/", `http://${HOST}`);
+
+  if (req.method === "GET" && parsedUrl.pathname === "/health") {
+    handleHealth(req, res);
+    return;
+  }
 
   if (req.method === "GET" && parsedUrl.pathname === "/api/admin/consultant-applications") {
     handleListConsultantApplications(req, res, parsedUrl);
