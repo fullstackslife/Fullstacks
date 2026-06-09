@@ -1,4 +1,5 @@
 const http = require("node:http");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { Pool } = require("pg");
@@ -8,6 +9,7 @@ const HOST = "0.0.0.0";
 const publicDir = path.join(__dirname, "dist");
 const maxBodySize = 64 * 1024;
 const databaseUrl = process.env.DATABASE_URL;
+const adminAccessToken = cleanString(process.env.ADMIN_ACCESS_TOKEN);
 const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
@@ -78,6 +80,17 @@ const specialtyOptions = new Set([
   "Property Recovery",
   "Reporting / Systems"
 ]);
+const applicationStatuses = [
+  "New",
+  "Reviewing",
+  "Interview",
+  "Qualified",
+  "Available",
+  "Placed",
+  "Inactive",
+  "Rejected"
+];
+const applicationStatusOptions = new Set(applicationStatuses);
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": contentTypes[".json"] });
@@ -147,6 +160,75 @@ function getClientIp(req) {
   }
 
   return req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "";
+}
+
+function timingSafeTokenMatches(candidate, expected) {
+  if (!candidate || !expected) {
+    return false;
+  }
+
+  const candidateBuffer = Buffer.from(candidate);
+  const expectedBuffer = Buffer.from(expected);
+
+  if (candidateBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(candidateBuffer, expectedBuffer);
+}
+
+function getAdminToken(req) {
+  const authorization = cleanString(req.headers.authorization);
+
+  if (authorization.toLowerCase().startsWith("bearer ")) {
+    return authorization.slice(7).trim();
+  }
+
+  return cleanString(req.headers["x-admin-token"]);
+}
+
+function isAuthorizedAdminRequest(req) {
+  return timingSafeTokenMatches(getAdminToken(req), adminAccessToken);
+}
+
+function requireAdmin(req, res) {
+  if (!adminAccessToken) {
+    sendJson(res, 503, { ok: false, error: "Admin access is not configured." });
+    return false;
+  }
+
+  if (!isAuthorizedAdminRequest(req)) {
+    sendJson(res, 401, { ok: false, error: "Unauthorized." });
+    return false;
+  }
+
+  return true;
+}
+
+function mapConsultantApplication(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    name: `${row.first_name} ${row.last_name}`.trim(),
+    email: row.email,
+    phone: row.phone,
+    city: row.city,
+    state: row.state,
+    currentRole: row.current_hospitality_role,
+    yearsExperience: row.years_experience,
+    travelPreference: row.travel_preference,
+    availability: row.availability,
+    brandsWorkedWith: row.brands_worked_with,
+    managementCompanies: row.management_companies,
+    linkedinUrl: row.linkedin_url,
+    resumeUrl: row.resume_url,
+    compensationExpectations: row.compensation_expectations,
+    specialtyAreas: Array.isArray(row.specialty_areas) ? row.specialty_areas : [],
+    notes: row.notes,
+    status: row.status || "New"
+  };
 }
 
 async function runMigration(description, sql) {
@@ -236,6 +318,21 @@ async function initializeDatabase() {
   `
     ),
     await runMigration(
+      "add consultant application status column",
+      `
+    ALTER TABLE consultant_applications
+      ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'New'
+  `
+    ),
+    await runMigration(
+      "backfill consultant application status",
+      `
+    UPDATE consultant_applications
+      SET status = 'New'
+      WHERE status IS NULL
+  `
+    ),
+    await runMigration(
       "index consultant applications by status",
       `
     CREATE INDEX IF NOT EXISTS consultant_applications_status_idx
@@ -247,6 +344,27 @@ async function initializeDatabase() {
       `
     CREATE INDEX IF NOT EXISTS consultant_applications_email_idx
       ON consultant_applications (email)
+  `
+    ),
+    await runMigration(
+      "index consultant applications by state",
+      `
+    CREATE INDEX IF NOT EXISTS consultant_applications_state_idx
+      ON consultant_applications (state)
+  `
+    ),
+    await runMigration(
+      "index consultant applications by travel preference",
+      `
+    CREATE INDEX IF NOT EXISTS consultant_applications_travel_preference_idx
+      ON consultant_applications (travel_preference)
+  `
+    ),
+    await runMigration(
+      "index consultant applications by availability",
+      `
+    CREATE INDEX IF NOT EXISTS consultant_applications_availability_idx
+      ON consultant_applications (availability)
   `
     )
   ];
@@ -569,6 +687,180 @@ async function handleConsultantApplication(req, res) {
   }
 }
 
+async function handleListConsultantApplications(req, res, parsedUrl) {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Consultant application storage is not configured." });
+    return;
+  }
+
+  const filters = [];
+  const params = [];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const status = cleanString(parsedUrl.searchParams.get("status"));
+  const state = cleanString(parsedUrl.searchParams.get("state"));
+  const travelPreference = cleanString(parsedUrl.searchParams.get("travelPreference"));
+  const availability = cleanString(parsedUrl.searchParams.get("availability"));
+  const specialtyArea = cleanString(parsedUrl.searchParams.get("specialtyArea"));
+  const keyword = cleanString(parsedUrl.searchParams.get("q"));
+
+  if (status) {
+    addFilter("status = ?", status);
+  }
+
+  if (state) {
+    addFilter("state ILIKE ?", state);
+  }
+
+  if (travelPreference) {
+    addFilter("travel_preference = ?", travelPreference);
+  }
+
+  if (availability) {
+    addFilter("availability = ?", availability);
+  }
+
+  if (specialtyArea) {
+    addFilter("? = ANY(COALESCE(specialty_areas, ARRAY[]::TEXT[]))", specialtyArea);
+  }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    const placeholder = `$${params.length}`;
+    filters.push(`(
+      first_name ILIKE ${placeholder}
+      OR last_name ILIKE ${placeholder}
+      OR email ILIKE ${placeholder}
+      OR current_hospitality_role ILIKE ${placeholder}
+      OR notes ILIKE ${placeholder}
+    )`);
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          created_at,
+          first_name,
+          last_name,
+          email,
+          phone,
+          city,
+          state,
+          current_hospitality_role,
+          years_experience,
+          travel_preference,
+          availability,
+          brands_worked_with,
+          management_companies,
+          linkedin_url,
+          resume_url,
+          compensation_expectations,
+          specialty_areas,
+          notes,
+          status
+        FROM consultant_applications
+        ${whereClause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT 250
+      `,
+      params
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      statuses: applicationStatuses,
+      applications: result.rows.map(mapConsultantApplication)
+    });
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to load consultant applications." });
+  }
+}
+
+async function handleUpdateConsultantApplicationStatus(req, res, applicationId) {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+
+  if (!/^\d+$/.test(applicationId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid application ID." });
+    return;
+  }
+
+  let payload;
+
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const status = cleanString(payload.status);
+
+  if (!applicationStatusOptions.has(status)) {
+    sendJson(res, 400, { ok: false, error: "Invalid application status." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Consultant application storage is not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE consultant_applications
+        SET status = $1
+        WHERE id = $2
+        RETURNING
+          id,
+          created_at,
+          first_name,
+          last_name,
+          email,
+          phone,
+          city,
+          state,
+          current_hospitality_role,
+          years_experience,
+          travel_preference,
+          availability,
+          brands_worked_with,
+          management_companies,
+          linkedin_url,
+          resume_url,
+          compensation_expectations,
+          specialty_areas,
+          notes,
+          status
+      `,
+      [status, applicationId]
+    );
+
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Consultant application not found." });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, application: mapConsultantApplication(result.rows[0]) });
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to update consultant application status." });
+  }
+}
+
 function resolveRequestPath(url) {
   const parsedUrl = new URL(url, `http://${HOST}`);
   const safePath = path.normalize(decodeURIComponent(parsedUrl.pathname)).replace(/^(\.\.[/\\])+/, "");
@@ -615,6 +907,20 @@ function serveStatic(req, res) {
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url || "/", `http://${HOST}`);
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/consultant-applications") {
+    handleListConsultantApplications(req, res, parsedUrl);
+    return;
+  }
+
+  const statusUpdateMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/consultant-applications\/(\d+)\/status$/
+  );
+
+  if (req.method === "PATCH" && statusUpdateMatch) {
+    handleUpdateConsultantApplicationStatus(req, res, statusUpdateMatch[1]);
+    return;
+  }
+
   if (req.method === "POST" && parsedUrl.pathname === "/api/inquiry") {
     handleInquiry(req, res);
     return;
@@ -628,6 +934,10 @@ const server = http.createServer((req, res) => {
   if (parsedUrl.pathname.startsWith("/api/")) {
     sendJson(res, 404, { ok: false, error: "Not found." });
     return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/admin/consultants") {
+    req.url = "/admin/consultants.html";
   }
 
   serveStatic(req, res);

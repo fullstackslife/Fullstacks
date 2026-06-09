@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Consultant Applications | FullStacks.ink</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/assets/admin-consultants.js" defer></script>
+  </head>
+  <body class="admin-page">
+    <header class="site-header">
+      <nav class="nav" aria-label="Admin navigation">
+        <a class="brand" href="/" aria-label="FullStacks.ink home">
+          <span class="brand-mark" aria-hidden="true">FS</span>
+          <span>
+            <strong>FullStacks.ink</strong>
+            <small>Consultant Review</small>
+          </span>
+        </a>
+        <div class="nav-links">
+          <a href="/">Public Site</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero" aria-labelledby="admin-title">
+        <p class="section-kicker">Internal Review</p>
+        <h1 id="admin-title">Consultant Applications</h1>
+        <p>
+          Review submitted hospitality consultants, filter by operating fit, and keep each candidate's
+          current status visible.
+        </p>
+      </section>
+
+      <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
+        <div class="form-heading">
+          <p class="section-kicker">Protected Access</p>
+          <h2 id="access-title">Enter the admin access token.</h2>
+        </div>
+        <form id="admin-token-form">
+          <div class="form-grid">
+            <label class="full-span">
+              <span>Admin Access Token</span>
+              <input id="admin-token" name="token" type="password" autocomplete="current-password" required />
+            </label>
+          </div>
+          <div class="form-footer">
+            <p class="form-status" id="admin-token-status" role="status" aria-live="polite"></p>
+            <button class="button primary" type="submit">View Applications</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-dashboard" id="admin-dashboard" hidden>
+        <form class="admin-filters" id="consultant-filters">
+          <label>
+            <span>Status</span>
+            <select name="status">
+              <option value="">All statuses</option>
+            </select>
+          </label>
+          <label>
+            <span>State</span>
+            <input name="state" type="text" maxlength="80" placeholder="Any state" />
+          </label>
+          <label>
+            <span>Travel</span>
+            <select name="travelPreference">
+              <option value="">Any travel</option>
+              <option>Local Only</option>
+              <option>Regional</option>
+              <option>Nationwide</option>
+            </select>
+          </label>
+          <label>
+            <span>Availability</span>
+            <select name="availability">
+              <option value="">Any availability</option>
+              <option>Immediately Available</option>
+              <option>Available Within 2 Weeks</option>
+              <option>Available Within 30 Days</option>
+              <option>Currently Employed / Future Opportunities</option>
+              <option>Project-Based Only</option>
+            </select>
+          </label>
+          <label>
+            <span>Specialty</span>
+            <select name="specialtyArea">
+              <option value="">Any specialty</option>
+              <option>Task Force GM</option>
+              <option>Operations</option>
+              <option>Revenue Management</option>
+              <option>Housekeeping</option>
+              <option>Maintenance</option>
+              <option>Front Office</option>
+              <option>Sales</option>
+              <option>Opening Support</option>
+              <option>Property Recovery</option>
+              <option>Reporting / Systems</option>
+            </select>
+          </label>
+          <label class="admin-search">
+            <span>Keyword</span>
+            <input name="q" type="search" maxlength="160" placeholder="Name, email, role, notes" />
+          </label>
+          <div class="admin-filter-actions">
+            <button class="button secondary" type="reset">Clear</button>
+            <button class="button primary" type="submit">Apply</button>
+          </div>
+        </form>
+
+        <div class="admin-summary">
+          <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
+          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
+        </div>
+
+        <div class="admin-layout">
+          <section class="application-list" aria-label="Consultant application list">
+            <div class="application-list-header">
+              <span>Candidate</span>
+              <span>Fit</span>
+              <span>Status</span>
+            </div>
+            <div id="application-list"></div>
+          </section>
+
+          <aside class="application-detail" id="application-detail" aria-live="polite">
+            <p class="section-kicker">Applicant Details</p>
+            <p class="empty-detail">Select an application to view full details.</p>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+

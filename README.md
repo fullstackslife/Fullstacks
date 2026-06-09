@@ -47,12 +47,40 @@ If `DATABASE_URL` is missing, the homepage still loads normally, but inquiry sub
 
 TODO: Add email delivery or CRM notification after PostgreSQL capture so new inquiries are actively surfaced.
 
+## Consultant Applications
+
+The consultant form posts to `POST /api/consultant-application`. When `DATABASE_URL` is present, the server creates and updates the `consultant_applications` table on startup, including a `status` field that defaults to `New`.
+
+Internal review is available at:
+
+```text
+/admin/consultants
+```
+
+Set this Railway service variable before using the admin dashboard:
+
+```text
+ADMIN_ACCESS_TOKEN=<strong private token>
+```
+
+The dashboard asks for that token before loading applicant data. API requests use the token as a bearer credential and are rejected when the variable is missing or the token does not match.
+
+Admin API routes:
+
+- `GET /api/admin/consultant-applications` lists newest applications first and supports filters for `status`, `state`, `travelPreference`, `availability`, `specialtyArea`, and keyword `q`.
+- `PATCH /api/admin/consultant-applications/:id/status` updates status after validating it against: `New`, `Reviewing`, `Interview`, `Qualified`, `Available`, `Placed`, `Inactive`, `Rejected`.
+
+Future improvements to consider: email notifications for new consultant applications, direct resume file uploads, CSV export, stronger authenticated admin accounts, and placement tracking.
+
 ## Project Structure
 
 - `index.html` - semantic one-page website content
 - `styles.css` - responsive visual design
 - `assets/inquiry.js` - contact form submission behavior
+- `assets/admin-consultants.js` - consultant admin dashboard behavior
+- `admin/consultants.html` - protected consultant review dashboard shell
 - `favicon.svg` - site favicon
 - `server.js` - minimal production static server and inquiry endpoint for Railway
 - `scripts/build.js` - copies static assets into `dist/`
+- `migrations/` - PostgreSQL schema setup for consultant applications
 - `docs/` - source prompts and positioning notes
