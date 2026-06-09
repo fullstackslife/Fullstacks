@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Admin Overview | FullStacks.ink</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/assets/admin-index.js" defer></script>
+  </head>
+  <body class="admin-page">
+    <header class="site-header">
+      <nav class="nav" aria-label="Admin navigation">
+        <a class="brand" href="/admin" aria-label="FullStacks.ink Admin home">
+          <span class="brand-mark" aria-hidden="true">FS</span>
+          <span>
+            <strong>FullStacks.ink</strong>
+            <small>Admin Overview</small>
+          </span>
+        </a>
+        <div class="nav-links">
+          <a href="/admin/clients">Clients</a>
+          <a href="/admin/consultants">Consultants</a>
+          <a href="/">Public Site</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero" aria-labelledby="admin-title">
+        <p class="section-kicker">Internal Review</p>
+        <h1 id="admin-title">Admin Overview</h1>
+        <p>Summary view of client inquiries and consultant applications.</p>
+      </section>
+
+      <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
+        <div class="form-heading">
+          <p class="section-kicker">Protected Access</p>
+          <h2 id="access-title">Enter the admin access token.</h2>
+        </div>
+        <form id="admin-token-form">
+          <div class="form-grid">
+            <label class="full-span">
+              <span>Admin Access Token</span>
+              <input id="admin-token" name="token" type="password" autocomplete="current-password" required />
+            </label>
+          </div>
+          <div class="form-footer">
+            <p class="form-status" id="admin-token-status" role="status" aria-live="polite"></p>
+            <button class="button primary" type="submit">View Overview</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-dashboard" id="admin-dashboard" hidden>
+        <div class="admin-summary">
+          <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
+          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
+        </div>
+
+        <div class="admin-overview-grid">
+          <div class="admin-overview-card">
+            <div class="admin-overview-header">
+              <div>
+                <p class="section-kicker">Client Inquiries</p>
+                <p class="admin-overview-total" id="inquiry-total" aria-live="polite">—</p>
+                <p class="admin-overview-total-label">total submissions</p>
+              </div>
+              <a href="/admin/clients" class="button primary">View All</a>
+            </div>
+            <div class="admin-counts" id="inquiry-counts" aria-label="Inquiry status breakdown"></div>
+            <div class="admin-recent" id="inquiry-recent" aria-label="Recent client inquiries"></div>
+          </div>
+
+          <div class="admin-overview-card">
+            <div class="admin-overview-header">
+              <div>
+                <p class="section-kicker">Consultant Applications</p>
+                <p class="admin-overview-total" id="consultant-total" aria-live="polite">—</p>
+                <p class="admin-overview-total-label">total submissions</p>
+              </div>
+              <a href="/admin/consultants" class="button primary">View All</a>
+            </div>
+            <div class="admin-counts" id="consultant-counts" aria-label="Consultant status breakdown"></div>
+            <div class="admin-recent" id="consultant-recent" aria-label="Recent consultant applications"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

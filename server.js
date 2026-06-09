@@ -1574,6 +1574,69 @@ async function handleUpdateInquiryNotes(req, res, inquiryId) {
   }
 }
 
+async function handleAdminSummary(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const [inquiryStatusResult, consultantStatusResult, recentInquiriesResult, recentConsultantsResult] =
+      await Promise.all([
+        pool.query("SELECT status, COUNT(*) AS count FROM inquiries GROUP BY status"),
+        pool.query("SELECT status, COUNT(*) AS count FROM consultant_applications GROUP BY status"),
+        pool.query(
+          "SELECT id, name, created_at, current_challenge, urgency, status FROM inquiries ORDER BY created_at DESC LIMIT 5"
+        ),
+        pool.query(
+          "SELECT id, first_name, last_name, created_at, current_hospitality_role, status FROM consultant_applications ORDER BY created_at DESC LIMIT 5"
+        ),
+      ]);
+
+    const inquiryByStatus = {};
+    let inquiryTotal = 0;
+    for (const row of inquiryStatusResult.rows) {
+      const count = parseInt(row.count, 10);
+      inquiryByStatus[row.status] = count;
+      inquiryTotal += count;
+    }
+
+    const consultantByStatus = {};
+    let consultantTotal = 0;
+    for (const row of consultantStatusResult.rows) {
+      const count = parseInt(row.count, 10);
+      consultantByStatus[row.status] = count;
+      consultantTotal += count;
+    }
+
+    sendJson(res, 200, {
+      inquiries: {
+        total: inquiryTotal,
+        byStatus: inquiryByStatus,
+        recent: recentInquiriesResult.rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          createdAt: row.created_at,
+          currentChallenge: row.current_challenge,
+          urgency: row.urgency,
+          status: row.status,
+        })),
+      },
+      consultants: {
+        total: consultantTotal,
+        byStatus: consultantByStatus,
+        recent: recentConsultantsResult.rows.map((row) => ({
+          id: row.id,
+          name: `${row.first_name || ""} ${row.last_name || ""}`.trim(),
+          createdAt: row.created_at,
+          currentRole: row.current_hospitality_role,
+          status: row.status,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("Admin summary error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load summary." });
+  }
+}
+
 async function handleHealth(req, res) {
   let dbOk = false;
 
@@ -1674,6 +1737,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/summary") {
+    handleAdminSummary(req, res);
+    return;
+  }
+
   if (req.method === "GET" && parsedUrl.pathname === "/api/admin/consultant-applications/export.csv") {
     handleExportConsultantApplicationsCsv(req, res, parsedUrl);
     return;
@@ -1730,6 +1798,10 @@ const server = http.createServer((req, res) => {
   if (parsedUrl.pathname.startsWith("/api/")) {
     sendJson(res, 404, { ok: false, error: "Not found." });
     return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/admin") {
+    req.url = "/admin/index.html";
   }
 
   if (req.method === "GET" && parsedUrl.pathname === "/admin/consultants") {
