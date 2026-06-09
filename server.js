@@ -2972,6 +2972,34 @@ async function handleUpdateConsultantAssignmentStatus(req, res, assignmentId) {
   }
 }
 
+async function handleDeleteConsultantAssignment(req, res, assignmentId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(assignmentId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid assignment ID." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query("DELETE FROM property_consultant_assignments WHERE id = $1", [assignmentId]);
+
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Assignment not found." });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    console.error("Delete consultant assignment error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to remove assignment." });
+  }
+}
+
 async function handleAdminSummary(req, res) {
   if (!requireAdmin(req, res)) return;
 
@@ -3181,6 +3209,12 @@ const server = http.createServer((req, res) => {
   const consultantAssignmentStatusMatch = parsedUrl.pathname.match(/^\/api\/admin\/consultant-assignments\/(\d+)\/status$/);
   if (req.method === "PATCH" && consultantAssignmentStatusMatch) {
     handleUpdateConsultantAssignmentStatus(req, res, consultantAssignmentStatusMatch[1]);
+    return;
+  }
+
+  const consultantAssignmentDeleteMatch = parsedUrl.pathname.match(/^\/api\/admin\/consultant-assignments\/(\d+)$/);
+  if (req.method === "DELETE" && consultantAssignmentDeleteMatch) {
+    handleDeleteConsultantAssignment(req, res, consultantAssignmentDeleteMatch[1]);
     return;
   }
 

@@ -345,6 +345,7 @@
               <select class="assignment-status-select" data-assignment-id="${assignment.id}">
                 ${statusOptions}
               </select>
+              <button class="button secondary remove-assignment-btn" data-assignment-id="${assignment.id}" type="button">Remove</button>
             </div>
           </div>
         `;
@@ -496,6 +497,19 @@
     }
   }
 
+  async function removeAssignment(assignmentId) {
+    setStatus(loadStatus, "Removing assignment...", "");
+    try {
+      await apiFetch(`/api/admin/consultant-assignments/${assignmentId}`, { method: "DELETE" });
+      if (selectedApplicationId) {
+        await loadAssignments(selectedApplicationId);
+      }
+      setStatus(loadStatus, "Assignment removed.", "success");
+    } catch (error) {
+      setStatus(loadStatus, error.message, "error");
+    }
+  }
+
   populateStatuses();
 
   tokenForm.addEventListener("submit", async (event) => {
@@ -551,6 +565,10 @@
   detail.addEventListener("click", (event) => {
     if (event.target.id === "create-assignment-btn" && selectedApplicationId) {
       createAssignment(selectedApplicationId);
+    }
+
+    if (event.target.classList.contains("remove-assignment-btn")) {
+      removeAssignment(Number(event.target.dataset.assignmentId));
     }
   });
 
