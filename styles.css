@@ -1341,3 +1341,17 @@ h3 {
   margin: 0;
   font-size: 0.85rem;
 }
+
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 0 4px;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.87rem;
+}

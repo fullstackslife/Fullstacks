@@ -4,6 +4,9 @@
   let adminToken = localStorage.getItem(storageKey) || "";
   let applications = [];
   let selectedApplicationId = null;
+  let pageOffset = 0;
+  let pageTotal = 0;
+  let pageHasMore = false;
 
   const accessPanel = document.querySelector("#admin-access-panel");
   const dashboard = document.querySelector("#admin-dashboard");
@@ -16,6 +19,7 @@
   const list = document.querySelector("#application-list");
   const detail = document.querySelector("#application-detail");
   const refreshButton = document.querySelector("#admin-refresh");
+  const exportCsvBtn = document.querySelector("#export-csv-btn");
 
   function setStatus(element, message, type) {
     if (!element) {
@@ -110,6 +114,38 @@
     }
   }
 
+  function renderPagination() {
+    const paginationEl = document.querySelector("#admin-pagination");
+
+    if (!paginationEl) {
+      return;
+    }
+
+    const shown = applications.length;
+
+    if (shown === 0) {
+      paginationEl.innerHTML = "";
+      return;
+    }
+
+    const rangeText = `Showing 1–${shown} of ${pageTotal} application${pageTotal === 1 ? "" : "s"}`;
+    let html = `<p class="pagination-info">${rangeText}</p>`;
+
+    if (pageHasMore) {
+      html += `<button class="button secondary" id="load-more-btn" type="button">Load More</button>`;
+    }
+
+    paginationEl.innerHTML = html;
+
+    const loadMoreBtn = paginationEl.querySelector("#load-more-btn");
+
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener("click", () => {
+        loadApplications(true);
+      });
+    }
+  }
+
   function renderList() {
     if (!list) {
       return;
@@ -128,9 +164,10 @@
     list.innerHTML = applications
       .map((application) => {
         const selected = application.id === selectedApplicationId ? " selected" : "";
-        const specialties = application.specialtyAreas && application.specialtyAreas.length
-          ? application.specialtyAreas.join(", ")
-          : "No specialties listed";
+        const specialties =
+          application.specialtyAreas && application.specialtyAreas.length
+            ? application.specialtyAreas.join(", ")
+            : "No specialties listed";
 
         return `
           <button class="application-row${selected}" type="button" data-id="${application.id}">
@@ -228,20 +265,47 @@
     `;
   }
 
-  async function loadApplications() {
-    setStatus(loadStatus, "Loading applications...", "");
+  async function loadApplications(append) {
+    if (!append) {
+      pageOffset = 0;
+    }
+
+    setStatus(loadStatus, append ? "Loading more..." : "Loading applications...", "");
 
     try {
       const params = getFilters();
-      const query = params.toString();
-      const payload = await apiFetch(`/api/admin/consultant-applications${query ? `?${query}` : ""}`);
-      applications = payload.applications || [];
+      params.set("limit", "50");
+      params.set("offset", String(pageOffset));
+
+      const payload = await apiFetch(`/api/admin/consultant-applications?${params.toString()}`);
+      const incoming = payload.consultants || [];
+
+      pageTotal = payload.total || 0;
+      pageHasMore = payload.hasMore || false;
+      pageOffset += incoming.length;
+
+      if (append) {
+        applications = applications.concat(incoming);
+      } else {
+        applications = incoming;
+        selectedApplicationId = null;
+      }
+
       showDashboard();
       renderList();
-      setStatus(loadStatus, `${applications.length} application${applications.length === 1 ? "" : "s"} loaded.`, "success");
+      renderPagination();
+      setStatus(
+        loadStatus,
+        `Showing ${applications.length} of ${pageTotal} application${pageTotal === 1 ? "" : "s"}.`,
+        "success"
+      );
     } catch (error) {
-      applications = [];
+      if (!append) {
+        applications = [];
+      }
+
       renderList();
+      renderPagination();
       setStatus(loadStatus, error.message, "error");
 
       if (/unauthorized|admin access is not configured/i.test(error.message)) {
@@ -264,6 +328,7 @@
       applications = applications.map((application) => (application.id === updated.id ? updated : application));
       selectedApplicationId = updated.id;
       renderList();
+      renderPagination();
       setStatus(loadStatus, `Status updated to ${updated.status}.`, "success");
     } catch (error) {
       setStatus(loadStatus, error.message, "error");
@@ -279,24 +344,27 @@
     localStorage.setItem(storageKey, adminToken);
     setStatus(tokenStatus, "Checking access...", "");
     showDashboard();
-    await loadApplications();
+    await loadApplications(false);
   });
 
   filtersForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     selectedApplicationId = null;
-    await loadApplications();
+    pageOffset = 0;
+    await loadApplications(false);
   });
 
   filtersForm.addEventListener("reset", () => {
     window.setTimeout(() => {
       selectedApplicationId = null;
-      loadApplications();
+      pageOffset = 0;
+      loadApplications(false);
     }, 0);
   });
 
   refreshButton.addEventListener("click", () => {
-    loadApplications();
+    pageOffset = 0;
+    loadApplications(false);
   });
 
   list.addEventListener("click", (event) => {
@@ -318,8 +386,16 @@
     updateStatus(selectedApplicationId, event.target.value);
   });
 
+  if (exportCsvBtn) {
+    exportCsvBtn.addEventListener("click", () => {
+      const params = getFilters();
+      params.set("token", adminToken);
+      window.location.href = `/api/admin/consultant-applications/export.csv?${params.toString()}`;
+    });
+  }
+
   if (adminToken) {
     showDashboard();
-    loadApplications();
+    loadApplications(false);
   }
 })();

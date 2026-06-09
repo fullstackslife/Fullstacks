@@ -51,6 +51,14 @@
           body: JSON.stringify(config.getPayload(form))
         });
 
+        if (response.status === 409) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(
+            data.error ||
+              (config.duplicateMessage || "A submission with this information already exists.")
+          );
+        }
+
         if (!response.ok) {
           throw new Error("Request failed");
         }
@@ -58,7 +66,7 @@
         form.reset();
         setStatus(status, config.successMessage, "success");
       } catch (error) {
-        setStatus(status, "Something went wrong. Please try again.", "error");
+        setStatus(status, error.message || "Something went wrong. Please try again.", "error");
       } finally {
         if (submitButton) {
           submitButton.disabled = false;
@@ -100,6 +108,8 @@
     endpoint: "/api/consultant-application",
     defaultButtonText: "Submit Consultant Inquiry",
     successMessage: "Thanks. Your consultant inquiry has been received.",
+    duplicateMessage:
+      "An application with this email address is already on file. If you need to update your information, please reach out directly.",
     getPayload(form) {
       const formData = new FormData(form);
       return {

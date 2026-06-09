@@ -4,6 +4,9 @@
   let adminToken = localStorage.getItem(storageKey) || "";
   let inquiries = [];
   let selectedInquiryId = null;
+  let pageOffset = 0;
+  let pageTotal = 0;
+  let pageHasMore = false;
 
   const accessPanel = document.querySelector("#admin-access-panel");
   const dashboard = document.querySelector("#admin-dashboard");
@@ -17,6 +20,7 @@
   const detail = document.querySelector("#application-detail");
   const refreshButton = document.querySelector("#admin-refresh");
   const countsBar = document.querySelector("#admin-counts");
+  const exportCsvBtn = document.querySelector("#export-csv-btn");
 
   function setStatus(element, message, type) {
     if (!element) {
@@ -124,7 +128,7 @@
     }
 
     for (const inquiry of inquiries) {
-      if (counts.hasOwnProperty(inquiry.status)) {
+      if (Object.prototype.hasOwnProperty.call(counts, inquiry.status)) {
         counts[inquiry.status]++;
       }
     }
@@ -139,6 +143,38 @@
         `
       )
       .join("");
+  }
+
+  function renderPagination() {
+    const paginationEl = document.querySelector("#admin-pagination");
+
+    if (!paginationEl) {
+      return;
+    }
+
+    const shown = inquiries.length;
+
+    if (shown === 0) {
+      paginationEl.innerHTML = "";
+      return;
+    }
+
+    const rangeText = `Showing 1–${shown} of ${pageTotal} inquir${pageTotal === 1 ? "y" : "ies"}`;
+    let html = `<p class="pagination-info">${rangeText}</p>`;
+
+    if (pageHasMore) {
+      html += `<button class="button secondary" id="load-more-btn" type="button">Load More</button>`;
+    }
+
+    paginationEl.innerHTML = html;
+
+    const loadMoreBtn = paginationEl.querySelector("#load-more-btn");
+
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener("click", () => {
+        loadInquiries(true);
+      });
+    }
   }
 
   function renderList() {
@@ -273,22 +309,49 @@
     `;
   }
 
-  async function loadInquiries() {
-    setStatus(loadStatus, "Loading inquiries...", "");
+  async function loadInquiries(append) {
+    if (!append) {
+      pageOffset = 0;
+    }
+
+    setStatus(loadStatus, append ? "Loading more..." : "Loading inquiries...", "");
 
     try {
       const params = getFilters();
-      const query = params.toString();
-      const payload = await apiFetch(`/api/admin/inquiries${query ? `?${query}` : ""}`);
-      inquiries = payload.inquiries || [];
+      params.set("limit", "50");
+      params.set("offset", String(pageOffset));
+
+      const payload = await apiFetch(`/api/admin/inquiries?${params.toString()}`);
+      const incoming = payload.inquiries || [];
+
+      pageTotal = payload.total || 0;
+      pageHasMore = payload.hasMore || false;
+      pageOffset += incoming.length;
+
+      if (append) {
+        inquiries = inquiries.concat(incoming);
+      } else {
+        inquiries = incoming;
+        selectedInquiryId = null;
+      }
+
       showDashboard();
       renderCounts();
       renderList();
-      setStatus(loadStatus, `${inquiries.length} inquir${inquiries.length === 1 ? "y" : "ies"} loaded.`, "success");
+      renderPagination();
+      setStatus(
+        loadStatus,
+        `Showing ${inquiries.length} of ${pageTotal} inquir${pageTotal === 1 ? "y" : "ies"}.`,
+        "success"
+      );
     } catch (error) {
-      inquiries = [];
+      if (!append) {
+        inquiries = [];
+      }
+
       renderCounts();
       renderList();
+      renderPagination();
       setStatus(loadStatus, error.message, "error");
 
       if (/unauthorized|admin access is not configured/i.test(error.message)) {
@@ -307,9 +370,7 @@
         method: "PATCH",
         body: JSON.stringify({ status })
       });
-      inquiries = inquiries.map((inq) =>
-        inq.id === inquiryId ? { ...inq, status } : inq
-      );
+      inquiries = inquiries.map((inq) => (inq.id === inquiryId ? { ...inq, status } : inq));
       selectedInquiryId = inquiryId;
       renderCounts();
       renderList();
@@ -329,9 +390,7 @@
         method: "PATCH",
         body: JSON.stringify({ notes })
       });
-      inquiries = inquiries.map((inq) =>
-        inq.id === inquiryId ? { ...inq, internalNotes: notes } : inq
-      );
+      inquiries = inquiries.map((inq) => (inq.id === inquiryId ? { ...inq, internalNotes: notes } : inq));
       setStatus(saveStatus, "Notes saved.", "success");
     } catch (error) {
       setStatus(saveStatus, error.message, "error");
@@ -346,24 +405,27 @@
     localStorage.setItem(storageKey, adminToken);
     setStatus(tokenStatus, "Checking access...", "");
     showDashboard();
-    await loadInquiries();
+    await loadInquiries(false);
   });
 
   filtersForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     selectedInquiryId = null;
-    await loadInquiries();
+    pageOffset = 0;
+    await loadInquiries(false);
   });
 
   filtersForm.addEventListener("reset", () => {
     window.setTimeout(() => {
       selectedInquiryId = null;
-      loadInquiries();
+      pageOffset = 0;
+      loadInquiries(false);
     }, 0);
   });
 
   refreshButton.addEventListener("click", () => {
-    loadInquiries();
+    pageOffset = 0;
+    loadInquiries(false);
   });
 
   list.addEventListener("click", (event) => {
@@ -395,8 +457,16 @@
     saveNotes(selectedInquiryId, notes);
   });
 
+  if (exportCsvBtn) {
+    exportCsvBtn.addEventListener("click", () => {
+      const params = getFilters();
+      params.set("token", adminToken);
+      window.location.href = `/api/admin/inquiries/export.csv?${params.toString()}`;
+    });
+  }
+
   if (adminToken) {
     showDashboard();
-    loadInquiries();
+    loadInquiries(false);
   }
 })();

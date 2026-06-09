@@ -267,6 +267,27 @@ function requireAdmin(req, res) {
   return true;
 }
 
+// Used by CSV export routes: accepts Bearer header OR ?token= query param
+// so the browser can trigger a native file download without fetch()
+function requireAdminOrQueryToken(req, res, parsedUrl) {
+  if (!adminAccessToken) {
+    sendJson(res, 503, { ok: false, error: "Admin access is not configured." });
+    return false;
+  }
+
+  const queryToken = cleanString(parsedUrl.searchParams.get("token"));
+  const authorized =
+    isAuthorizedAdminRequest(req) ||
+    (queryToken.length > 0 && timingSafeTokenMatches(queryToken, adminAccessToken));
+
+  if (!authorized) {
+    sendJson(res, 401, { ok: false, error: "Unauthorized." });
+    return false;
+  }
+
+  return true;
+}
+
 function mapConsultantApplication(row) {
   return {
     id: row.id,
@@ -880,6 +901,21 @@ async function handleConsultantApplication(req, res) {
 
   const application = validation.application;
 
+  // Duplicate email check — must run before INSERT, after validation
+  try {
+    const existing = await pool.query(
+      "SELECT id FROM consultant_applications WHERE email = $1 LIMIT 1",
+      [application.email]
+    );
+    if (existing.rowCount > 0) {
+      sendJson(res, 409, { ok: false, error: "An application with this email address already exists." });
+      return;
+    }
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to process application." });
+    return;
+  }
+
   try {
     await pool.query(
       `
@@ -942,6 +978,128 @@ async function handleConsultantApplication(req, res) {
   }
 }
 
+// RFC 4180 CSV helpers — no external dependency needed
+function escapeCsvField(value) {
+  const str = value === null || value === undefined ? "" : String(value);
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+function buildCsvRow(fields) {
+  return fields.map(escapeCsvField).join(",");
+}
+
+async function handleExportConsultantApplicationsCsv(req, res, parsedUrl) {
+  if (!requireAdminOrQueryToken(req, res, parsedUrl)) {
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Consultant application storage is not configured." });
+    return;
+  }
+
+  const filters = [];
+  const params = [];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const status = cleanString(parsedUrl.searchParams.get("status"));
+  const state = cleanString(parsedUrl.searchParams.get("state"));
+  const travelPreference = cleanString(parsedUrl.searchParams.get("travelPreference"));
+  const availability = cleanString(parsedUrl.searchParams.get("availability"));
+  const specialtyArea = cleanString(parsedUrl.searchParams.get("specialtyArea"));
+  const keyword = cleanString(parsedUrl.searchParams.get("q"));
+
+  if (status) { addFilter("status = ?", status); }
+  if (state) { addFilter("state ILIKE ?", state); }
+  if (travelPreference) { addFilter("travel_preference = ?", travelPreference); }
+  if (availability) { addFilter("availability = ?", availability); }
+  if (specialtyArea) { addFilter("? = ANY(COALESCE(specialty_areas, ARRAY[]::TEXT[]))", specialtyArea); }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    const placeholder = `$${params.length}`;
+    filters.push(`(
+      first_name ILIKE ${placeholder}
+      OR last_name ILIKE ${placeholder}
+      OR email ILIKE ${placeholder}
+      OR current_hospitality_role ILIKE ${placeholder}
+      OR notes ILIKE ${placeholder}
+    )`);
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+  const today = new Date().toISOString().slice(0, 10);
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          id, created_at, first_name, last_name, email, phone, city, state,
+          current_hospitality_role, years_experience, travel_preference, availability,
+          specialty_areas, brands_worked_with, management_companies, linkedin_url,
+          resume_url, compensation_expectations, status, notes
+        FROM consultant_applications
+        ${whereClause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT 10000
+      `,
+      params
+    );
+
+    const headerRow = buildCsvRow([
+      "id", "created_at", "first_name", "last_name", "email", "phone",
+      "city", "state", "current_hospitality_role", "years_experience",
+      "travel_preference", "availability", "specialty_areas", "brands_worked_with",
+      "management_companies", "linkedin_url", "resume_url", "compensation_expectations",
+      "status", "notes"
+    ]);
+
+    const dataRows = result.rows.map((row) =>
+      buildCsvRow([
+        row.id,
+        row.created_at ? row.created_at.toISOString() : "",
+        row.first_name,
+        row.last_name,
+        row.email,
+        row.phone,
+        row.city,
+        row.state,
+        row.current_hospitality_role,
+        row.years_experience,
+        row.travel_preference,
+        row.availability,
+        Array.isArray(row.specialty_areas) ? row.specialty_areas.join(";") : "",
+        row.brands_worked_with,
+        row.management_companies,
+        row.linkedin_url,
+        row.resume_url,
+        row.compensation_expectations,
+        row.status,
+        row.notes
+      ])
+    );
+
+    const csv = [headerRow, ...dataRows].join("\r\n");
+
+    setSecurityHeaders(res, false);
+    res.writeHead(200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="consultant-applications-${today}.csv"`,
+      "Cache-Control": "no-cache"
+    });
+    res.end(csv);
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to export consultant applications." });
+  }
+}
+
 async function handleListConsultantApplications(req, res, parsedUrl) {
   if (!requireAdmin(req, res)) {
     return;
@@ -966,26 +1124,16 @@ async function handleListConsultantApplications(req, res, parsedUrl) {
   const availability = cleanString(parsedUrl.searchParams.get("availability"));
   const specialtyArea = cleanString(parsedUrl.searchParams.get("specialtyArea"));
   const keyword = cleanString(parsedUrl.searchParams.get("q"));
+  const limitParam = parseInt(parsedUrl.searchParams.get("limit"), 10);
+  const offsetParam = parseInt(parsedUrl.searchParams.get("offset"), 10);
+  const limit = !isNaN(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 50;
+  const offset = !isNaN(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
 
-  if (status) {
-    addFilter("status = ?", status);
-  }
-
-  if (state) {
-    addFilter("state ILIKE ?", state);
-  }
-
-  if (travelPreference) {
-    addFilter("travel_preference = ?", travelPreference);
-  }
-
-  if (availability) {
-    addFilter("availability = ?", availability);
-  }
-
-  if (specialtyArea) {
-    addFilter("? = ANY(COALESCE(specialty_areas, ARRAY[]::TEXT[]))", specialtyArea);
-  }
+  if (status) { addFilter("status = ?", status); }
+  if (state) { addFilter("state ILIKE ?", state); }
+  if (travelPreference) { addFilter("travel_preference = ?", travelPreference); }
+  if (availability) { addFilter("availability = ?", availability); }
+  if (specialtyArea) { addFilter("? = ANY(COALESCE(specialty_areas, ARRAY[]::TEXT[]))", specialtyArea); }
 
   if (keyword) {
     params.push(`%${keyword}%`);
@@ -1002,6 +1150,15 @@ async function handleListConsultantApplications(req, res, parsedUrl) {
   const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
 
   try {
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM consultant_applications ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    params.push(limit);
+    params.push(offset);
+
     const result = await pool.query(
       `
         SELECT
@@ -1028,7 +1185,7 @@ async function handleListConsultantApplications(req, res, parsedUrl) {
         FROM consultant_applications
         ${whereClause}
         ORDER BY created_at DESC, id DESC
-        LIMIT 250
+        LIMIT $${params.length - 1} OFFSET $${params.length}
       `,
       params
     );
@@ -1036,7 +1193,11 @@ async function handleListConsultantApplications(req, res, parsedUrl) {
     sendJson(res, 200, {
       ok: true,
       statuses: applicationStatuses,
-      applications: result.rows.map(mapConsultantApplication)
+      consultants: result.rows.map(mapConsultantApplication),
+      total,
+      limit,
+      offset,
+      hasMore: offset + result.rows.length < total
     });
   } catch (error) {
     sendJson(res, 500, { ok: false, error: "Unable to load consultant applications." });
@@ -1140,7 +1301,7 @@ async function handleListInquiries(req, res, parsedUrl) {
   const keyword = cleanString(parsedUrl.searchParams.get("q"));
   const limitParam = parseInt(parsedUrl.searchParams.get("limit"), 10);
   const offsetParam = parseInt(parsedUrl.searchParams.get("offset"), 10);
-  const limit = !isNaN(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 100;
+  const limit = !isNaN(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 50;
   const offset = !isNaN(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
 
   if (status) {
@@ -1213,10 +1374,99 @@ async function handleListInquiries(req, res, parsedUrl) {
       inquiries: result.rows.map(mapInquiry),
       total,
       limit,
-      offset
+      offset,
+      hasMore: offset + result.rows.length < total
     });
   } catch (error) {
     sendJson(res, 500, { ok: false, error: "Unable to load inquiries." });
+  }
+}
+
+async function handleExportInquiriesCsv(req, res, parsedUrl) {
+  if (!requireAdminOrQueryToken(req, res, parsedUrl)) {
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Inquiry storage is not configured." });
+    return;
+  }
+
+  const filters = [];
+  const params = [];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const status = cleanString(parsedUrl.searchParams.get("status"));
+  const urgency = cleanString(parsedUrl.searchParams.get("urgency"));
+  const challenge = cleanString(parsedUrl.searchParams.get("challenge"));
+
+  if (status) { addFilter("status = ?", status); }
+  if (urgency) { addFilter("urgency = ?", urgency); }
+  if (challenge) { addFilter("current_challenge ILIKE ?", `%${challenge}%`); }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+  const today = new Date().toISOString().slice(0, 10);
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          id, created_at, updated_at, name, email, phone, company,
+          property_name, property_location, brand_flag, room_count,
+          property_relationship, current_challenge, urgency, message,
+          status, internal_notes
+        FROM inquiries
+        ${whereClause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT 10000
+      `,
+      params
+    );
+
+    const headerRow = buildCsvRow([
+      "id", "created_at", "updated_at", "name", "email", "phone", "company",
+      "property_name", "property_location", "brand_flag", "room_count",
+      "property_relationship", "current_challenge", "urgency", "message",
+      "status", "internal_notes"
+    ]);
+
+    const dataRows = result.rows.map((row) =>
+      buildCsvRow([
+        row.id,
+        row.created_at ? row.created_at.toISOString() : "",
+        row.updated_at ? row.updated_at.toISOString() : "",
+        row.name,
+        row.email,
+        row.phone,
+        row.company,
+        row.property_name,
+        row.property_location,
+        row.brand_flag,
+        row.room_count,
+        row.property_relationship,
+        row.current_challenge,
+        row.urgency,
+        row.message,
+        row.status,
+        row.internal_notes
+      ])
+    );
+
+    const csv = [headerRow, ...dataRows].join("\r\n");
+
+    setSecurityHeaders(res, false);
+    res.writeHead(200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="property-inquiries-${today}.csv"`,
+      "Cache-Control": "no-cache"
+    });
+    res.end(csv);
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to export inquiries." });
   }
 }
 
@@ -1424,6 +1674,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/consultant-applications/export.csv") {
+    handleExportConsultantApplicationsCsv(req, res, parsedUrl);
+    return;
+  }
+
   if (req.method === "GET" && parsedUrl.pathname === "/api/admin/consultant-applications") {
     handleListConsultantApplications(req, res, parsedUrl);
     return;
@@ -1445,6 +1700,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && parsedUrl.pathname === "/api/consultant-application") {
     handleConsultantApplication(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/inquiries/export.csv") {
+    handleExportInquiriesCsv(req, res, parsedUrl);
     return;
   }
 
