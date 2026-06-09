@@ -1814,6 +1814,332 @@ async function handleUpdateInquiryNotes(req, res, inquiryId) {
   }
 }
 
+// ── Property Recovery Dashboard ───────────────────────────────────────────
+
+const roomStatuses = ["In Service", "OOO", "Maintenance", "Renovation", "Mothballed"];
+const roomStatusOptions = new Set(roomStatuses);
+const roomPriorities = ["Low", "Normal", "High", "Critical"];
+const roomPriorityOptions = new Set(roomPriorities);
+
+function mapRoom(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    propertyId: row.property_id,
+    roomNumber: row.room_number,
+    floor: row.floor,
+    roomType: row.room_type,
+    status: row.status,
+    oosReason: row.oos_reason,
+    returnDate: row.return_date,
+    priority: row.priority,
+    notes: row.notes
+  };
+}
+
+async function handlePropertySummary(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const [roomStatusResult, roomPriorityResult, propertyResult] = await Promise.all([
+      pool.query(
+        `SELECT status, COUNT(*) AS count
+         FROM rooms r
+         JOIN properties p ON p.id = r.property_id
+         WHERE p.status = 'Active'
+         GROUP BY status`
+      ),
+      pool.query(
+        `SELECT priority, COUNT(*) AS count
+         FROM rooms r
+         JOIN properties p ON p.id = r.property_id
+         WHERE r.status != 'In Service' AND p.status = 'Active'
+         GROUP BY priority`
+      ),
+      pool.query(
+        `SELECT id, name, location, brand_flag, total_rooms, status
+         FROM properties
+         WHERE status = 'Active'
+         ORDER BY id
+         LIMIT 1`
+      )
+    ]);
+
+    const roomsByStatus = {};
+    let totalRooms = 0;
+    for (const row of roomStatusResult.rows) {
+      const count = parseInt(row.count, 10);
+      roomsByStatus[row.status] = count;
+      totalRooms += count;
+    }
+
+    const oosRoomsByPriority = {};
+    for (const row of roomPriorityResult.rows) {
+      oosRoomsByPriority[row.priority] = parseInt(row.count, 10);
+    }
+
+    const property = propertyResult.rows[0] || null;
+
+    sendJson(res, 200, {
+      ok: true,
+      property: property
+        ? {
+            id: property.id,
+            name: property.name,
+            location: property.location,
+            brandFlag: property.brand_flag,
+            totalRooms: property.total_rooms,
+            status: property.status
+          }
+        : null,
+      rooms: {
+        total: totalRooms,
+        byStatus: roomsByStatus,
+        statuses: roomStatuses
+      },
+      oosRoomsByPriority
+    });
+  } catch (error) {
+    console.error("Property summary error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load property summary." });
+  }
+}
+
+async function handleListRooms(req, res, parsedUrl) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  const filters = [];
+  const params = [];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const status = cleanString(parsedUrl.searchParams.get("status"));
+  const roomType = cleanString(parsedUrl.searchParams.get("room_type"));
+  const floorParam = parsedUrl.searchParams.get("floor");
+  const keyword = cleanString(parsedUrl.searchParams.get("q"));
+  const limitParam = parseInt(parsedUrl.searchParams.get("limit"), 10);
+  const offsetParam = parseInt(parsedUrl.searchParams.get("offset"), 10);
+  const limit = !isNaN(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 100;
+  const offset = !isNaN(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
+
+  if (status) addFilter("r.status = ?", status);
+  if (roomType) addFilter("r.room_type = ?", roomType);
+
+  if (floorParam !== null && floorParam !== "") {
+    const floorInt = parseInt(floorParam, 10);
+    if (!isNaN(floorInt)) addFilter("r.floor = ?", floorInt);
+  }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    const ph = `$${params.length}`;
+    filters.push(`(r.room_number ILIKE ${ph} OR r.notes ILIKE ${ph} OR r.oos_reason ILIKE ${ph})`);
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+
+  try {
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM rooms r ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    params.push(limit);
+    params.push(offset);
+
+    const result = await pool.query(
+      `SELECT
+         r.id, r.created_at, r.updated_at, r.property_id, r.room_number,
+         r.floor, r.room_type, r.status, r.oos_reason, r.return_date,
+         r.priority, r.notes
+       FROM rooms r
+       ${whereClause}
+       ORDER BY r.floor ASC, r.room_number ASC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      statuses: roomStatuses,
+      rooms: result.rows.map(mapRoom),
+      total,
+      limit,
+      offset,
+      hasMore: offset + result.rows.length < total
+    });
+  } catch (error) {
+    console.error("List rooms error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load rooms." });
+  }
+}
+
+async function handleUpdateRoomStatus(req, res, roomId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(roomId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid room ID." });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const status = cleanString(payload.status);
+
+  if (!roomStatusOptions.has(status)) {
+    sendJson(res, 400, { ok: false, error: `Invalid room status. Valid values: ${roomStatuses.join(", ")}.` });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE rooms
+       SET status = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING
+         id, created_at, updated_at, property_id, room_number, floor,
+         room_type, status, oos_reason, return_date, priority, notes`,
+      [status, roomId]
+    );
+
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Room not found." });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, room: mapRoom(result.rows[0]) });
+  } catch (error) {
+    console.error("Update room status error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to update room status." });
+  }
+}
+
+async function handleUpdateRoom(req, res, roomId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(roomId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid room ID." });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const setClauses = [];
+  const params = [];
+
+  function addSet(column, value) {
+    params.push(value);
+    setClauses.push(`${column} = $${params.length}`);
+  }
+
+  if ("oosReason" in payload) {
+    const val = cleanString(payload.oosReason);
+    if (val.length > 1000) {
+      sendJson(res, 400, { ok: false, error: "oosReason exceeds maximum length of 1000 characters." });
+      return;
+    }
+    addSet("oos_reason", val || null);
+  }
+
+  if ("notes" in payload) {
+    const val = cleanString(payload.notes);
+    if (val.length > 2000) {
+      sendJson(res, 400, { ok: false, error: "notes exceeds maximum length of 2000 characters." });
+      return;
+    }
+    addSet("notes", val || null);
+  }
+
+  if ("priority" in payload) {
+    const val = cleanString(payload.priority);
+    if (!roomPriorityOptions.has(val)) {
+      sendJson(res, 400, { ok: false, error: `Invalid priority. Valid values: ${roomPriorities.join(", ")}.` });
+      return;
+    }
+    addSet("priority", val);
+  }
+
+  if ("returnDate" in payload) {
+    const val = cleanString(payload.returnDate);
+    if (val) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(val) || isNaN(Date.parse(val))) {
+        sendJson(res, 400, { ok: false, error: "returnDate must be a valid YYYY-MM-DD date or null." });
+        return;
+      }
+      addSet("return_date", val);
+    } else {
+      addSet("return_date", null);
+    }
+  }
+
+  if (setClauses.length === 0) {
+    sendJson(res, 400, { ok: false, error: "No valid fields provided for update." });
+    return;
+  }
+
+  setClauses.push(`updated_at = NOW()`);
+  params.push(roomId);
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE rooms
+       SET ${setClauses.join(", ")}
+       WHERE id = $${params.length}
+       RETURNING
+         id, created_at, updated_at, property_id, room_number, floor,
+         room_type, status, oos_reason, return_date, priority, notes`,
+      params
+    );
+
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Room not found." });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, room: mapRoom(result.rows[0]) });
+  } catch (error) {
+    console.error("Update room error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to update room." });
+  }
+}
+
 async function handleAdminSummary(req, res) {
   if (!requireAdmin(req, res)) return;
 
@@ -1982,6 +2308,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/property/summary") {
+    handlePropertySummary(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/property/rooms") {
+    handleListRooms(req, res, parsedUrl);
+    return;
+  }
+
+  const roomStatusMatch = parsedUrl.pathname.match(/^\/api\/admin\/property\/rooms\/(\d+)\/status$/);
+  if (req.method === "PATCH" && roomStatusMatch) {
+    handleUpdateRoomStatus(req, res, roomStatusMatch[1]);
+    return;
+  }
+
+  const roomUpdateMatch = parsedUrl.pathname.match(/^\/api\/admin\/property\/rooms\/(\d+)$/);
+  if (req.method === "PATCH" && roomUpdateMatch) {
+    handleUpdateRoom(req, res, roomUpdateMatch[1]);
+    return;
+  }
+
   if (req.method === "GET" && parsedUrl.pathname === "/api/admin/consultant-applications/export.csv") {
     handleExportConsultantApplicationsCsv(req, res, parsedUrl);
     return;
@@ -2050,6 +2398,10 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && parsedUrl.pathname === "/admin/clients") {
     req.url = "/admin/clients.html";
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/admin/property") {
+    req.url = "/admin/property/index.html";
   }
 
   serveStatic(req, res);
