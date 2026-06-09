@@ -143,6 +143,7 @@ a {
 }
 
 #services,
+#systems,
 #operators,
 #consultants,
 #experience,
@@ -1098,6 +1099,7 @@ h3 {
 
 @media (max-width: 680px) {
   #services,
+  #systems,
   #operators,
   #consultants,
   #experience,
@@ -1468,4 +1470,27 @@ h3 {
   .admin-overview-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============================================================
+   Systems Section — added 2026-06-08
+   ============================================================ */
+
+.systems-bridge {
+  max-width: 780px;
+  margin: 0 0 36px;
+  color: var(--muted);
+}
+
+.systems-card-cta {
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.systems-note {
+  max-width: 780px;
+  margin: 32px 0 0;
+  color: var(--muted);
+  font-style: italic;
 }

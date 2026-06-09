@@ -3,3 +3,6 @@ dist/
 .env
 data/*.jsonl
 *.log
+
+# Private strategy documents — do not commit to public repos
+docs/private/
