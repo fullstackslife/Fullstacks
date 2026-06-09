@@ -71,7 +71,7 @@
       })
       .join("");
 
-    const priorityOrder = ["Critical", "High", "Normal", "Low"];
+    const priorityOrder = ["Critical", "High", "Medium", "Low"];
     const priorityCards = priorityOrder
       .map((p) => {
         const count = oosRoomsByPriority[p] || 0;

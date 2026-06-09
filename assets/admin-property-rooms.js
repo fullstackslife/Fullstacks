@@ -1,7 +1,7 @@
 (function () {
   const storageKey = "fullstacksAdminToken";
   const roomStatuses = ["In Service", "OOO", "Maintenance", "Renovation", "Mothballed"];
-  const roomPriorities = ["Low", "Normal", "High", "Critical"];
+  const roomPriorities = ["Low", "Medium", "High", "Critical"];
   let adminToken = localStorage.getItem(storageKey) || "";
   let rooms = [];
   let selectedRoomId = null;
@@ -125,12 +125,12 @@
       .map((r) => {
         const selected = r.id === selectedRoomId ? " selected" : "";
         const floorLabel = r.floor ? `Floor ${r.floor}` : "";
-        const typeFloor = [r.roomType, floorLabel].filter(Boolean).join(" · ");
+        const typeFloor = [r.roomType, floorLabel].filter(Boolean).join("  /  ");
         return `
           <button class="application-row${selected}" type="button" data-id="${r.id}">
             <span>
               <strong>Room ${escapeHtml(r.roomNumber)}</strong>
-              ${r.oosReason ? `<small>${escapeHtml(r.oosReason.slice(0, 80))}${r.oosReason.length > 80 ? "…" : ""}</small>` : ""}
+              ${r.oosReason ? `<small>${escapeHtml(r.oosReason.slice(0, 80))}${r.oosReason.length > 80 ? "..." : ""}</small>` : ""}
             </span>
             <span>${escapeHtml(typeFloor)}</span>
             <span class="status-pill">${escapeHtml(r.status)}</span>
@@ -162,7 +162,7 @@
         <div>
           <p class="section-kicker">Room Details</p>
           <h2>Room ${escapeHtml(room.roomNumber)}</h2>
-          <p>${escapeHtml([room.roomType, room.floor ? "Floor " + room.floor : ""].filter(Boolean).join(" · "))}</p>
+          <p>${escapeHtml([room.roomType, room.floor ? "Floor " + room.floor : ""].filter(Boolean).join("  /  "))}</p>
         </div>
         <label>
           <span>Status</span>
@@ -173,9 +173,9 @@
       <h3 class="detail-section-heading">Details</h3>
       <dl class="detail-grid">
         <div><dt>Room Number</dt><dd>${escapeHtml(room.roomNumber)}</dd></div>
-        <div><dt>Type</dt><dd>${escapeHtml(room.roomType || "—")}</dd></div>
-        <div><dt>Floor</dt><dd>${room.floor != null ? room.floor : "—"}</dd></div>
-        <div><dt>Priority</dt><dd>${escapeHtml(room.priority || "Normal")}</dd></div>
+        <div><dt>Type</dt><dd>${escapeHtml(room.roomType || "-")}</dd></div>
+        <div><dt>Floor</dt><dd>${room.floor != null ? room.floor : "-"}</dd></div>
+        <div><dt>Priority</dt><dd>${escapeHtml(room.priority || "Medium")}</dd></div>
         ${returnDateValue ? `<div><dt>Return Date</dt><dd>${escapeHtml(formatDate(returnDateValue))}</dd></div>` : ""}
       </dl>
 
