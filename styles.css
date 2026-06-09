@@ -1221,3 +1221,123 @@ h3 {
     text-align: left;
   }
 }
+
+/* ============================================================
+   Admin Client Inquiries — added 2026-06-08
+   ============================================================ */
+
+.admin-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.admin-count-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 90px;
+}
+
+.admin-count-card strong {
+  font-size: clamp(1.6rem, 2.5vw, 2.2rem);
+  font-weight: 900;
+  color: var(--accent-bright);
+  line-height: 1;
+}
+
+.admin-count-card span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.detail-section-heading {
+  margin: 22px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.detail-section-heading:first-of-type {
+  margin-top: 20px;
+}
+
+.detail-message {
+  margin-top: 16px;
+}
+
+.detail-message-label {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  margin-bottom: 8px;
+}
+
+.detail-message p:last-child {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.detail-notes {
+  margin-top: 16px;
+}
+
+.detail-notes label span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  margin-bottom: 8px;
+}
+
+.detail-notes textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--input-bg, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.detail-notes textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.detail-notes-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.detail-notes-footer .form-status {
+  margin: 0;
+  font-size: 0.85rem;
+}
