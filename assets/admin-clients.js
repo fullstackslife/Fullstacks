@@ -295,6 +295,12 @@
         ${detailItem("Last Updated", inq.updatedAt ? formatDate(inq.updatedAt) : "Not yet updated")}
       </dl>
       <div class="detail-notes">
+        <div class="detail-notes-footer">
+          <p class="form-status" id="property-create-status" role="status" aria-live="polite"></p>
+          <button class="button primary" id="create-property-btn" type="button">Create Property Profile</button>
+        </div>
+      </div>
+      <div class="detail-notes">
         <label for="inquiry-notes">
           <span>Internal Notes</span>
         </label>
@@ -384,6 +390,23 @@
     }
   }
 
+  async function createPropertyFromInquiry(inquiryId) {
+    const createStatus = document.querySelector("#property-create-status");
+    setStatus(createStatus, "Creating property profile...", "");
+
+    try {
+      const payload = await apiFetch(`/api/admin/inquiries/${inquiryId}/property`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      const message = payload.existed ? "Property profile already exists." : "Property profile created.";
+      setStatus(createStatus, `${message} Opening Properties...`, "success");
+      window.location.href = "/admin/properties";
+    } catch (error) {
+      setStatus(createStatus, error.message, "error");
+    }
+  }
+
   async function saveNotes(inquiryId, notes) {
     const saveStatus = document.querySelector("#notes-save-status");
     setStatus(saveStatus, "Saving...", "");
@@ -451,13 +474,19 @@
   });
 
   detail.addEventListener("click", (event) => {
-    if (event.target.id !== "save-notes-btn" || !selectedInquiryId) {
+    if (!selectedInquiryId) {
       return;
     }
 
-    const textarea = document.querySelector("#inquiry-notes");
-    const notes = textarea ? textarea.value : "";
-    saveNotes(selectedInquiryId, notes);
+    if (event.target.id === "save-notes-btn") {
+      const textarea = document.querySelector("#inquiry-notes");
+      const notes = textarea ? textarea.value : "";
+      saveNotes(selectedInquiryId, notes);
+    }
+
+    if (event.target.id === "create-property-btn") {
+      createPropertyFromInquiry(selectedInquiryId);
+    }
   });
 
   if (exportCsvBtn) {

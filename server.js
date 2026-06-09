@@ -336,6 +336,44 @@ function mapInquiry(row) {
   };
 }
 
+const propertyLifecycleStatuses = [
+  "Lead",
+  "Discovery",
+  "Assessment",
+  "Active Recovery",
+  "Monitoring",
+  "Closed Won",
+  "Closed Lost",
+  "Archived"
+];
+const propertyLifecycleStatusOptions = new Set(propertyLifecycleStatuses);
+
+function mapProperty(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    sourceInquiryId: row.source_inquiry_id,
+    name: row.name,
+    location: row.location,
+    brandFlag: row.brand_flag,
+    totalRooms: row.total_rooms,
+    managementCompany: row.management_co,
+    ownerName: row.owner_name,
+    company: row.company,
+    primaryContactName: row.primary_contact_name,
+    primaryContactEmail: row.primary_contact_email,
+    primaryContactPhone: row.primary_contact_phone,
+    propertyRelationship: row.property_relationship,
+    currentChallenge: row.current_challenge,
+    urgency: row.urgency,
+    lifecycleStatus: row.lifecycle_status || "Lead",
+    status: row.status || "Active",
+    notes: row.notes,
+    onboardingNotes: row.onboarding_notes
+  };
+}
+
 // ============================================================
 // Email Notifications — Resend
 // Required environment variables:
@@ -648,15 +686,38 @@ async function initializeDatabase() {
       `
       ALTER TABLE properties
         ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS source_inquiry_id INTEGER REFERENCES inquiries(id),
         ADD COLUMN IF NOT EXISTS name TEXT,
         ADD COLUMN IF NOT EXISTS location TEXT,
         ADD COLUMN IF NOT EXISTS brand_flag TEXT,
         ADD COLUMN IF NOT EXISTS total_rooms INTEGER,
         ADD COLUMN IF NOT EXISTS management_co TEXT,
         ADD COLUMN IF NOT EXISTS owner_name TEXT,
+        ADD COLUMN IF NOT EXISTS company TEXT,
+        ADD COLUMN IF NOT EXISTS primary_contact_name TEXT,
+        ADD COLUMN IF NOT EXISTS primary_contact_email TEXT,
+        ADD COLUMN IF NOT EXISTS primary_contact_phone TEXT,
+        ADD COLUMN IF NOT EXISTS property_relationship TEXT,
+        ADD COLUMN IF NOT EXISTS current_challenge TEXT,
+        ADD COLUMN IF NOT EXISTS urgency TEXT,
+        ADD COLUMN IF NOT EXISTS lifecycle_status TEXT DEFAULT 'Lead',
+        ADD COLUMN IF NOT EXISTS onboarding_notes TEXT,
         ADD COLUMN IF NOT EXISTS notes TEXT,
         ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Active'
       `
+    ),
+    await runMigration(
+      "backfill property lifecycle status",
+      `UPDATE properties SET lifecycle_status = 'Active Recovery' WHERE lifecycle_status IS NULL`
+    ),
+    await runMigration(
+      "index properties by lifecycle status",
+      `CREATE INDEX IF NOT EXISTS idx_properties_lifecycle_status ON properties(lifecycle_status)`
+    ),
+    await runMigration(
+      "index properties by source inquiry",
+      `CREATE INDEX IF NOT EXISTS idx_properties_source_inquiry_id ON properties(source_inquiry_id)`
     ),
     await runMigration(
       "create vendors table",
@@ -845,6 +906,15 @@ async function initializeDatabase() {
         FROM properties
         WHERE name = 'La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg'
       )
+      `
+    ),
+    await runMigration(
+      "set seeded property lifecycle",
+      `
+      UPDATE properties
+      SET lifecycle_status = 'Active Recovery', updated_at = NOW()
+      WHERE name = 'La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg'
+        AND (lifecycle_status IS NULL OR lifecycle_status = 'Lead')
       `
     ),
     await runMigration(
@@ -2234,6 +2304,377 @@ async function handleUpdateRoom(req, res, roomId) {
   }
 }
 
+function parseOptionalInteger(value) {
+  const cleaned = cleanString(value);
+  if (!cleaned) {
+    return null;
+  }
+
+  const match = cleaned.match(/\d+/);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = parseInt(match[0], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function handleListProperties(req, res, parsedUrl) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  const filters = [];
+  const params = [];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const lifecycleStatus = cleanString(parsedUrl.searchParams.get("lifecycleStatus"));
+  const keyword = cleanString(parsedUrl.searchParams.get("q"));
+  const limitParam = parseInt(parsedUrl.searchParams.get("limit"), 10);
+  const offsetParam = parseInt(parsedUrl.searchParams.get("offset"), 10);
+  const limit = !isNaN(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 50;
+  const offset = !isNaN(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
+
+  if (lifecycleStatus) {
+    addFilter("lifecycle_status = ?", lifecycleStatus);
+  }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    const placeholder = `$${params.length}`;
+    filters.push(`(
+      name ILIKE ${placeholder}
+      OR location ILIKE ${placeholder}
+      OR brand_flag ILIKE ${placeholder}
+      OR company ILIKE ${placeholder}
+      OR primary_contact_name ILIKE ${placeholder}
+      OR primary_contact_email ILIKE ${placeholder}
+      OR current_challenge ILIKE ${placeholder}
+    )`);
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+
+  try {
+    const countResult = await pool.query(`SELECT COUNT(*) FROM properties ${whereClause}`, params);
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    params.push(limit);
+    params.push(offset);
+
+    const result = await pool.query(
+      `
+        SELECT
+          id, created_at, updated_at, source_inquiry_id, name, location,
+          brand_flag, total_rooms, management_co, owner_name, company,
+          primary_contact_name, primary_contact_email, primary_contact_phone,
+          property_relationship, current_challenge, urgency, lifecycle_status,
+          status, notes, onboarding_notes
+        FROM properties
+        ${whereClause}
+        ORDER BY
+          CASE lifecycle_status
+            WHEN 'Active Recovery' THEN 1
+            WHEN 'Assessment' THEN 2
+            WHEN 'Discovery' THEN 3
+            WHEN 'Lead' THEN 4
+            WHEN 'Monitoring' THEN 5
+            WHEN 'Closed Won' THEN 6
+            WHEN 'Closed Lost' THEN 7
+            WHEN 'Archived' THEN 8
+            ELSE 9
+          END,
+          updated_at DESC NULLS LAST,
+          created_at DESC,
+          id DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}
+      `,
+      params
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      statuses: propertyLifecycleStatuses,
+      properties: result.rows.map(mapProperty),
+      total,
+      limit,
+      offset,
+      hasMore: offset + result.rows.length < total
+    });
+  } catch (error) {
+    console.error("List properties error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load properties." });
+  }
+}
+
+async function handleCreateProperty(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const property = {
+    name: cleanString(payload.name),
+    location: cleanString(payload.location),
+    brandFlag: cleanString(payload.brandFlag),
+    totalRooms: parseOptionalInteger(payload.totalRooms),
+    managementCompany: cleanString(payload.managementCompany),
+    ownerName: cleanString(payload.ownerName),
+    company: cleanString(payload.company),
+    primaryContactName: cleanString(payload.primaryContactName),
+    primaryContactEmail: cleanString(payload.primaryContactEmail),
+    primaryContactPhone: cleanString(payload.primaryContactPhone),
+    propertyRelationship: cleanString(payload.propertyRelationship),
+    currentChallenge: cleanString(payload.currentChallenge),
+    urgency: cleanString(payload.urgency),
+    lifecycleStatus: cleanString(payload.lifecycleStatus) || "Lead",
+    onboardingNotes: cleanString(payload.onboardingNotes),
+    notes: cleanString(payload.notes)
+  };
+
+  if (!property.name) {
+    sendJson(res, 400, { ok: false, error: "Property name is required." });
+    return;
+  }
+
+  if (!propertyLifecycleStatusOptions.has(property.lifecycleStatus)) {
+    sendJson(res, 400, { ok: false, error: "Invalid property lifecycle status." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        INSERT INTO properties (
+          name, location, brand_flag, total_rooms, management_co, owner_name,
+          company, primary_contact_name, primary_contact_email, primary_contact_phone,
+          property_relationship, current_challenge, urgency, lifecycle_status,
+          onboarding_notes, notes, status, updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9, $10,
+          $11, $12, $13, $14,
+          $15, $16, 'Active', NOW()
+        )
+        RETURNING
+          id, created_at, updated_at, source_inquiry_id, name, location,
+          brand_flag, total_rooms, management_co, owner_name, company,
+          primary_contact_name, primary_contact_email, primary_contact_phone,
+          property_relationship, current_challenge, urgency, lifecycle_status,
+          status, notes, onboarding_notes
+      `,
+      [
+        property.name,
+        property.location || null,
+        property.brandFlag || null,
+        property.totalRooms,
+        property.managementCompany || null,
+        property.ownerName || null,
+        property.company || null,
+        property.primaryContactName || null,
+        property.primaryContactEmail || null,
+        property.primaryContactPhone || null,
+        property.propertyRelationship || null,
+        property.currentChallenge || null,
+        property.urgency || null,
+        property.lifecycleStatus,
+        property.onboardingNotes || null,
+        property.notes || null
+      ]
+    );
+
+    sendJson(res, 201, { ok: true, property: mapProperty(result.rows[0]) });
+  } catch (error) {
+    console.error("Create property error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to create property." });
+  }
+}
+
+async function handleCreatePropertyFromInquiry(req, res, inquiryId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(inquiryId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid inquiry ID." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const existing = await pool.query(
+      `
+        SELECT
+          id, created_at, updated_at, source_inquiry_id, name, location,
+          brand_flag, total_rooms, management_co, owner_name, company,
+          primary_contact_name, primary_contact_email, primary_contact_phone,
+          property_relationship, current_challenge, urgency, lifecycle_status,
+          status, notes, onboarding_notes
+        FROM properties
+        WHERE source_inquiry_id = $1
+        LIMIT 1
+      `,
+      [inquiryId]
+    );
+
+    if (existing.rows.length > 0) {
+      sendJson(res, 200, { ok: true, existed: true, property: mapProperty(existing.rows[0]) });
+      return;
+    }
+
+    const inquiryResult = await pool.query(
+      `
+        SELECT
+          id, name, email, phone, company, property_name, property_location,
+          brand_flag, room_count, property_relationship, current_challenge,
+          urgency, message, internal_notes
+        FROM inquiries
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [inquiryId]
+    );
+
+    if (inquiryResult.rows.length === 0) {
+      sendJson(res, 404, { ok: false, error: "Inquiry not found." });
+      return;
+    }
+
+    const inquiry = inquiryResult.rows[0];
+    const propertyName = cleanString(inquiry.property_name || inquiry.company || `Property inquiry ${inquiry.id}`);
+    const onboardingNotes = [
+      inquiry.message ? `Inquiry message:\n${inquiry.message}` : "",
+      inquiry.internal_notes ? `\nInternal inquiry notes:\n${inquiry.internal_notes}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const result = await pool.query(
+      `
+        INSERT INTO properties (
+          source_inquiry_id, name, location, brand_flag, total_rooms, company,
+          primary_contact_name, primary_contact_email, primary_contact_phone,
+          property_relationship, current_challenge, urgency, lifecycle_status,
+          onboarding_notes, status, updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9,
+          $10, $11, $12, 'Discovery',
+          $13, 'Active', NOW()
+        )
+        RETURNING
+          id, created_at, updated_at, source_inquiry_id, name, location,
+          brand_flag, total_rooms, management_co, owner_name, company,
+          primary_contact_name, primary_contact_email, primary_contact_phone,
+          property_relationship, current_challenge, urgency, lifecycle_status,
+          status, notes, onboarding_notes
+      `,
+      [
+        inquiry.id,
+        propertyName,
+        inquiry.property_location || null,
+        inquiry.brand_flag || null,
+        parseOptionalInteger(inquiry.room_count),
+        inquiry.company || null,
+        inquiry.name || null,
+        inquiry.email || null,
+        inquiry.phone || null,
+        inquiry.property_relationship || null,
+        inquiry.current_challenge || null,
+        inquiry.urgency || null,
+        onboardingNotes || null
+      ]
+    );
+
+    await pool.query(
+      `UPDATE inquiries SET status = 'Qualified', updated_at = NOW() WHERE id = $1 AND status IN ('New', 'Reviewing', 'Contacted')`,
+      [inquiryId]
+    );
+
+    sendJson(res, 201, { ok: true, existed: false, property: mapProperty(result.rows[0]) });
+  } catch (error) {
+    console.error("Create property from inquiry error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to create property from inquiry." });
+  }
+}
+
+async function handleUpdatePropertyLifecycleStatus(req, res, propertyId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(propertyId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid property ID." });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const lifecycleStatus = cleanString(payload.lifecycleStatus);
+
+  if (!propertyLifecycleStatusOptions.has(lifecycleStatus)) {
+    sendJson(res, 400, { ok: false, error: "Invalid property lifecycle status." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE properties
+        SET lifecycle_status = $1, updated_at = NOW()
+        WHERE id = $2
+        RETURNING
+          id, created_at, updated_at, source_inquiry_id, name, location,
+          brand_flag, total_rooms, management_co, owner_name, company,
+          primary_contact_name, primary_contact_email, primary_contact_phone,
+          property_relationship, current_challenge, urgency, lifecycle_status,
+          status, notes, onboarding_notes
+      `,
+      [lifecycleStatus, propertyId]
+    );
+
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Property not found." });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, property: mapProperty(result.rows[0]) });
+  } catch (error) {
+    console.error("Update property lifecycle status error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to update property lifecycle status." });
+  }
+}
+
 async function handleAdminSummary(req, res) {
   if (!requireAdmin(req, res)) return;
 
@@ -2407,6 +2848,22 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/properties") {
+    handleListProperties(req, res, parsedUrl);
+    return;
+  }
+
+  if (req.method === "POST" && parsedUrl.pathname === "/api/admin/properties") {
+    handleCreateProperty(req, res);
+    return;
+  }
+
+  const propertyLifecycleMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/lifecycle-status$/);
+  if (req.method === "PATCH" && propertyLifecycleMatch) {
+    handleUpdatePropertyLifecycleStatus(req, res, propertyLifecycleMatch[1]);
+    return;
+  }
+
   if (req.method === "GET" && parsedUrl.pathname === "/api/admin/property/rooms") {
     handleListRooms(req, res, parsedUrl);
     return;
@@ -2477,6 +2934,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const inquiryPropertyMatch = parsedUrl.pathname.match(/^\/api\/admin\/inquiries\/(\d+)\/property$/);
+
+  if (req.method === "POST" && inquiryPropertyMatch) {
+    handleCreatePropertyFromInquiry(req, res, inquiryPropertyMatch[1]);
+    return;
+  }
+
   if (parsedUrl.pathname.startsWith("/api/")) {
     sendJson(res, 404, { ok: false, error: "Not found." });
     return;
@@ -2492,6 +2956,10 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && parsedUrl.pathname === "/admin/clients") {
     req.url = "/admin/clients.html";
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/admin/properties") {
+    req.url = "/admin/properties.html";
   }
 
   if (req.method === "GET" && parsedUrl.pathname === "/admin/property") {

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Properties | FullStacks.ink</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css?v=property-onboarding-20260609" />
+    <script src="/assets/admin-properties.js?v=property-onboarding-20260609" defer></script>
+  </head>
+  <body class="admin-page">
+    <header class="site-header" id="admin-site-header" hidden>
+      <nav class="nav" aria-label="Admin navigation">
+        <a class="brand" href="/admin" aria-label="FullStacks.ink Admin home">
+          <span class="brand-mark" aria-hidden="true">FS</span>
+          <span>
+            <strong>FullStacks.ink</strong>
+            <small>Properties</small>
+          </span>
+        </a>
+        <div class="nav-links">
+          <a href="/admin">Admin Home</a>
+          <a href="/admin/clients">Clients</a>
+          <a href="/admin/consultants">Consultants</a>
+          <a href="/admin/properties">Properties</a>
+          <a href="/admin/property">Property</a>
+          <a href="/admin/property/rooms">Rooms</a>
+          <a href="/">Public Site</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero" aria-labelledby="admin-title">
+        <p class="section-kicker">Client Onboarding</p>
+        <h1 id="admin-title">Properties</h1>
+        <p>Create and manage client property profiles before they become active recovery work.</p>
+      </section>
+
+      <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
+        <div class="form-heading">
+          <p class="section-kicker">Protected Access</p>
+          <h2 id="access-title">Enter the admin access token.</h2>
+        </div>
+        <form id="admin-token-form">
+          <div class="form-grid">
+            <label class="full-span">
+              <span>Admin Access Token</span>
+              <input id="admin-token" name="token" type="password" autocomplete="current-password" required />
+            </label>
+          </div>
+          <div class="form-footer">
+            <p class="form-status" id="admin-token-status" role="status" aria-live="polite"></p>
+            <button class="button primary" type="submit">View Properties</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-dashboard" id="admin-dashboard" hidden>
+        <form class="admin-filters" id="property-filters">
+          <label>
+            <span>Status</span>
+            <select name="lifecycleStatus">
+              <option value="">All statuses</option>
+            </select>
+          </label>
+          <label class="admin-search">
+            <span>Search</span>
+            <input name="q" type="search" maxlength="160" placeholder="Property, contact, company, challenge" />
+          </label>
+          <div class="admin-filter-actions">
+            <button class="button secondary" type="reset">Clear</button>
+            <button class="button primary" type="submit">Apply</button>
+            <button class="button secondary" id="add-property-btn" type="button">Add Property</button>
+          </div>
+        </form>
+
+        <section class="inquiry-form admin-create-panel" id="property-create-panel" hidden>
+          <div class="form-heading">
+            <p class="section-kicker">Manual Entry</p>
+            <h2>Add a property profile.</h2>
+          </div>
+          <form id="property-create-form">
+            <div class="form-grid">
+              <label>
+                <span>Property Name</span>
+                <input name="name" type="text" maxlength="180" required />
+              </label>
+              <label>
+                <span>Location</span>
+                <input name="location" type="text" maxlength="180" />
+              </label>
+              <label>
+                <span>Brand / Flag</span>
+                <input name="brandFlag" type="text" maxlength="160" />
+              </label>
+              <label>
+                <span>Room Count</span>
+                <input name="totalRooms" type="number" min="0" max="10000" />
+              </label>
+              <label>
+                <span>Company</span>
+                <input name="company" type="text" maxlength="180" />
+              </label>
+              <label>
+                <span>Primary Contact</span>
+                <input name="primaryContactName" type="text" maxlength="180" />
+              </label>
+              <label>
+                <span>Contact Email</span>
+                <input name="primaryContactEmail" type="email" maxlength="180" />
+              </label>
+              <label>
+                <span>Contact Phone</span>
+                <input name="primaryContactPhone" type="tel" maxlength="80" />
+              </label>
+              <label>
+                <span>Lifecycle Status</span>
+                <select name="lifecycleStatus"></select>
+              </label>
+              <label class="full-span">
+                <span>Current Challenge</span>
+                <input name="currentChallenge" type="text" maxlength="240" />
+              </label>
+              <label class="full-span">
+                <span>Onboarding Notes</span>
+                <textarea name="onboardingNotes" maxlength="4000" rows="4"></textarea>
+              </label>
+            </div>
+            <div class="form-footer">
+              <p class="form-status" id="property-create-status" role="status" aria-live="polite"></p>
+              <button class="button secondary" id="cancel-property-create" type="button">Cancel</button>
+              <button class="button primary" type="submit">Create Property</button>
+            </div>
+          </form>
+        </section>
+
+        <div class="admin-summary">
+          <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
+          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
+        </div>
+
+        <div class="admin-layout">
+          <section class="application-list" aria-label="Property list">
+            <div class="application-list-header">
+              <span>Property</span>
+              <span>Contact / Challenge</span>
+              <span>Status</span>
+            </div>
+            <div id="property-list"></div>
+          </section>
+
+          <aside class="application-detail" id="property-detail" aria-live="polite">
+            <p class="section-kicker">Property Details</p>
+            <p class="empty-detail">Select a property to view onboarding details.</p>
+          </aside>
+        </div>
+
+        <div class="admin-pagination" id="admin-pagination" aria-live="polite"></div>
+      </section>
+    </main>
+  </body>
+</html>
