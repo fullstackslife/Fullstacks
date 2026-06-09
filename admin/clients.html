@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Client Inquiries | FullStacks.ink</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/assets/admin-clients.js" defer></script>
+  </head>
+  <body class="admin-page">
+    <header class="site-header">
+      <nav class="nav" aria-label="Admin navigation">
+        <a class="brand" href="/" aria-label="FullStacks.ink home">
+          <span class="brand-mark" aria-hidden="true">FS</span>
+          <span>
+            <strong>FullStacks.ink</strong>
+            <small>Client Inquiry Review</small>
+          </span>
+        </a>
+        <div class="nav-links">
+          <a href="/admin/consultants">Consultants</a>
+          <a href="/">Public Site</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero" aria-labelledby="admin-title">
+        <p class="section-kicker">Internal Review</p>
+        <h1 id="admin-title">Client Inquiries</h1>
+        <p>Review hotel, property, and operations support requests.</p>
+      </section>
+
+      <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
+        <div class="form-heading">
+          <p class="section-kicker">Protected Access</p>
+          <h2 id="access-title">Enter the admin access token.</h2>
+        </div>
+        <form id="admin-token-form">
+          <div class="form-grid">
+            <label class="full-span">
+              <span>Admin Access Token</span>
+              <input id="admin-token" name="token" type="password" autocomplete="current-password" required />
+            </label>
+          </div>
+          <div class="form-footer">
+            <p class="form-status" id="admin-token-status" role="status" aria-live="polite"></p>
+            <button class="button primary" type="submit">View Inquiries</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-dashboard" id="admin-dashboard" hidden>
+        <div class="admin-counts" id="admin-counts" aria-label="Inquiry status summary"></div>
+
+        <form class="admin-filters" id="inquiry-filters">
+          <label>
+            <span>Status</span>
+            <select name="status">
+              <option value="">All statuses</option>
+            </select>
+          </label>
+          <label>
+            <span>Urgency</span>
+            <select name="urgency">
+              <option value="">Any urgency</option>
+              <option>Immediate</option>
+              <option>Within 2 Weeks</option>
+              <option>Within 30 Days</option>
+              <option>Planning / Future Need</option>
+            </select>
+          </label>
+          <label>
+            <span>Current Challenge</span>
+            <select name="challenge">
+              <option value="">Any challenge</option>
+              <option>Leadership Gap</option>
+              <option>Staffing Pressure</option>
+              <option>Out-of-Order Inventory</option>
+              <option>Revenue Issues</option>
+              <option>Reporting / AR Visibility</option>
+              <option>Vendor Delays</option>
+              <option>Compliance</option>
+              <option>Opening Support</option>
+              <option>Property Recovery</option>
+              <option>Systems / Technology</option>
+              <option>Other</option>
+            </select>
+          </label>
+          <label class="admin-search">
+            <span>Keyword</span>
+            <input name="q" type="search" maxlength="160" placeholder="Name, email, property, message" />
+          </label>
+          <div class="admin-filter-actions">
+            <button class="button secondary" type="reset">Clear</button>
+            <button class="button primary" type="submit">Apply</button>
+          </div>
+        </form>
+
+        <div class="admin-summary">
+          <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
+          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
+        </div>
+
+        <div class="admin-layout">
+          <section class="application-list" aria-label="Client inquiry list">
+            <div class="application-list-header">
+              <span>Property / Contact</span>
+              <span>Challenge</span>
+              <span>Status</span>
+            </div>
+            <div id="application-list"></div>
+          </section>
+
+          <aside class="application-detail" id="application-detail" aria-live="polite">
+            <p class="section-kicker">Inquiry Details</p>
+            <p class="empty-detail">Select an inquiry to view full details.</p>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -92,6 +92,19 @@ const applicationStatuses = [
 ];
 const applicationStatusOptions = new Set(applicationStatuses);
 
+const inquiryStatuses = [
+  "New",
+  "Reviewing",
+  "Contacted",
+  "Qualified",
+  "Proposal",
+  "Active",
+  "Closed",
+  "Lost",
+  "Archived"
+];
+const inquiryStatusOptions = new Set(inquiryStatuses);
+
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": contentTypes[".json"] });
   res.end(JSON.stringify(payload));
@@ -231,6 +244,28 @@ function mapConsultantApplication(row) {
   };
 }
 
+function mapInquiry(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    company: row.company,
+    propertyName: row.property_name,
+    propertyLocation: row.property_location,
+    brandFlag: row.brand_flag,
+    roomCount: row.room_count,
+    propertyRelationship: row.property_relationship,
+    currentChallenge: row.current_challenge,
+    urgency: row.urgency,
+    message: row.message,
+    internalNotes: row.internal_notes,
+    status: row.status || "New"
+  };
+}
+
 async function runMigration(description, sql) {
   try {
     await pool.query(sql);
@@ -366,6 +401,30 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS consultant_applications_availability_idx
       ON consultant_applications (availability)
   `
+    ),
+    await runMigration(
+      "add inquiry status column",
+      `ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'New'`
+    ),
+    await runMigration(
+      "add inquiry internal notes column",
+      `ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS internal_notes TEXT`
+    ),
+    await runMigration(
+      "add inquiry updated_at column",
+      `ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`
+    ),
+    await runMigration(
+      "index inquiries by status",
+      `CREATE INDEX IF NOT EXISTS idx_inquiries_status ON inquiries(status)`
+    ),
+    await runMigration(
+      "index inquiries by created_at",
+      `CREATE INDEX IF NOT EXISTS idx_inquiries_created_at ON inquiries(created_at DESC)`
+    ),
+    await runMigration(
+      "index inquiries by urgency",
+      `CREATE INDEX IF NOT EXISTS idx_inquiries_urgency ON inquiries(urgency)`
     )
   ];
 
@@ -861,6 +920,214 @@ async function handleUpdateConsultantApplicationStatus(req, res, applicationId) 
   }
 }
 
+async function handleListInquiries(req, res, parsedUrl) {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Inquiry storage is not configured." });
+    return;
+  }
+
+  const filters = [];
+  const params = [];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const status = cleanString(parsedUrl.searchParams.get("status"));
+  const urgency = cleanString(parsedUrl.searchParams.get("urgency"));
+  const challenge = cleanString(parsedUrl.searchParams.get("challenge"));
+  const keyword = cleanString(parsedUrl.searchParams.get("q"));
+  const limitParam = parseInt(parsedUrl.searchParams.get("limit"), 10);
+  const offsetParam = parseInt(parsedUrl.searchParams.get("offset"), 10);
+  const limit = !isNaN(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 100;
+  const offset = !isNaN(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
+
+  if (status) {
+    addFilter("status = ?", status);
+  }
+
+  if (urgency) {
+    addFilter("urgency = ?", urgency);
+  }
+
+  if (challenge) {
+    addFilter("current_challenge ILIKE ?", `%${challenge}%`);
+  }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    const placeholder = `$${params.length}`;
+    filters.push(`(
+      name ILIKE ${placeholder}
+      OR email ILIKE ${placeholder}
+      OR company ILIKE ${placeholder}
+      OR property_name ILIKE ${placeholder}
+      OR message ILIKE ${placeholder}
+    )`);
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+
+  try {
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM inquiries ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    params.push(limit);
+    params.push(offset);
+
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          created_at,
+          updated_at,
+          name,
+          email,
+          phone,
+          company,
+          property_name,
+          property_location,
+          brand_flag,
+          room_count,
+          property_relationship,
+          current_challenge,
+          urgency,
+          message,
+          status,
+          internal_notes
+        FROM inquiries
+        ${whereClause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}
+      `,
+      params
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      statuses: inquiryStatuses,
+      inquiries: result.rows.map(mapInquiry),
+      total,
+      limit,
+      offset
+    });
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to load inquiries." });
+  }
+}
+
+async function handleUpdateInquiryStatus(req, res, inquiryId) {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+
+  if (!/^\d+$/.test(inquiryId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid inquiry ID." });
+    return;
+  }
+
+  let payload;
+
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const status = cleanString(payload.status);
+
+  if (!inquiryStatusOptions.has(status)) {
+    sendJson(res, 400, { ok: false, error: "Invalid inquiry status." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Inquiry storage is not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE inquiries
+        SET status = $1, updated_at = NOW()
+        WHERE id = $2
+      `,
+      [status, inquiryId]
+    );
+
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Inquiry not found." });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to update inquiry status." });
+  }
+}
+
+async function handleUpdateInquiryNotes(req, res, inquiryId) {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+
+  if (!/^\d+$/.test(inquiryId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid inquiry ID." });
+    return;
+  }
+
+  let payload;
+
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const notes = cleanString(payload.notes);
+
+  if (notes.length > 4000) {
+    sendJson(res, 400, { ok: false, error: "Notes exceed maximum length of 4000 characters." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Inquiry storage is not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE inquiries
+        SET internal_notes = $1, updated_at = NOW()
+        WHERE id = $2
+      `,
+      [notes || null, inquiryId]
+    );
+
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Inquiry not found." });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    sendJson(res, 500, { ok: false, error: "Unable to update inquiry notes." });
+  }
+}
+
 function resolveRequestPath(url) {
   const parsedUrl = new URL(url, `http://${HOST}`);
   const safePath = path.normalize(decodeURIComponent(parsedUrl.pathname)).replace(/^(\.\.[/\\])+/, "");
@@ -931,6 +1198,25 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/inquiries") {
+    handleListInquiries(req, res, parsedUrl);
+    return;
+  }
+
+  const inquiryStatusMatch = parsedUrl.pathname.match(/^\/api\/admin\/inquiries\/(\d+)\/status$/);
+
+  if (req.method === "PATCH" && inquiryStatusMatch) {
+    handleUpdateInquiryStatus(req, res, inquiryStatusMatch[1]);
+    return;
+  }
+
+  const inquiryNotesMatch = parsedUrl.pathname.match(/^\/api\/admin\/inquiries\/(\d+)\/notes$/);
+
+  if (req.method === "PATCH" && inquiryNotesMatch) {
+    handleUpdateInquiryNotes(req, res, inquiryNotesMatch[1]);
+    return;
+  }
+
   if (parsedUrl.pathname.startsWith("/api/")) {
     sendJson(res, 404, { ok: false, error: "Not found." });
     return;
@@ -938,6 +1224,10 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && parsedUrl.pathname === "/admin/consultants") {
     req.url = "/admin/consultants.html";
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/admin/clients") {
+    req.url = "/admin/clients.html";
   }
 
   serveStatic(req, res);
