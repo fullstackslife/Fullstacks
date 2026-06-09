@@ -6,8 +6,8 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>Admin Overview | FullStacks.ink</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css" />
-    <script src="/assets/admin-index.js?v=admin-nav-20260609" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=admin-home-property-20260609" />
+    <script src="/assets/admin-index.js?v=admin-home-property-20260609" defer></script>
   </head>
   <body class="admin-page">
     <header class="site-header" id="admin-site-header" hidden>
@@ -32,9 +32,9 @@
 
     <main class="admin-shell">
       <section class="admin-hero" aria-labelledby="admin-title">
-        <p class="section-kicker">Internal Review</p>
+        <p class="section-kicker">Internal Operations</p>
         <h1 id="admin-title">Admin Overview</h1>
-        <p>Summary view of client inquiries and consultant applications.</p>
+        <p>Summary view of client inquiries, consultant applications, and property recovery status.</p>
       </section>
 
       <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
@@ -87,6 +87,32 @@
             </div>
             <div class="admin-counts" id="consultant-counts" aria-label="Consultant status breakdown"></div>
             <div class="admin-recent" id="consultant-recent" aria-label="Recent consultant applications"></div>
+          </div>
+
+          <div class="admin-overview-card">
+            <div class="admin-overview-header">
+              <div>
+                <p class="section-kicker">Property</p>
+                <p class="admin-overview-total admin-overview-name" id="property-name" aria-live="polite">—</p>
+                <p class="admin-overview-total-label" id="property-location">active recovery property</p>
+              </div>
+              <a href="/admin/property" class="button primary">View Property</a>
+            </div>
+            <div class="admin-counts" id="property-counts" aria-label="Property recovery metrics"></div>
+            <div class="admin-recent" id="property-priorities" aria-label="Out-of-order rooms by priority"></div>
+          </div>
+
+          <div class="admin-overview-card">
+            <div class="admin-overview-header">
+              <div>
+                <p class="section-kicker">Rooms</p>
+                <p class="admin-overview-total" id="rooms-total" aria-live="polite">—</p>
+                <p class="admin-overview-total-label" id="rooms-label">tracked rooms</p>
+              </div>
+              <a href="/admin/property/rooms" class="button primary">View Rooms</a>
+            </div>
+            <div class="admin-counts" id="rooms-counts" aria-label="Room status breakdown"></div>
+            <div class="admin-recent" id="rooms-alerts" aria-label="Room recovery alerts"></div>
           </div>
         </div>
       </section>

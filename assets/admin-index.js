@@ -2,6 +2,8 @@
   const storageKey = "fullstacksAdminToken";
   const inquiryTracked = ["New", "Reviewing", "Qualified", "Active"];
   const consultantTracked = ["New", "Reviewing", "Qualified", "Available"];
+  const roomTracked = ["In Service", "OOO", "Maintenance", "Renovation", "Mothballed"];
+  const priorityTracked = ["Critical", "High", "Medium", "Low"];
   let adminToken = localStorage.getItem(storageKey) || "";
 
   const siteHeader = document.querySelector("#admin-site-header");
@@ -130,13 +132,136 @@
     }
   }
 
+  function renderCountCards(element, items, values) {
+    if (!element) {
+      return;
+    }
+
+    element.innerHTML = items
+      .map((label) => {
+        const count = values[label] || 0;
+        return `
+          <div class="admin-count-card">
+            <strong>${count}</strong>
+            <span>${escapeHtml(label)}</span>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  function renderPropertySummary(data) {
+    const propertyName = document.querySelector("#property-name");
+    const propertyLocation = document.querySelector("#property-location");
+    const propertyCounts = document.querySelector("#property-counts");
+    const propertyPriorities = document.querySelector("#property-priorities");
+    const roomsTotal = document.querySelector("#rooms-total");
+    const roomsLabel = document.querySelector("#rooms-label");
+    const roomsCounts = document.querySelector("#rooms-counts");
+    const roomsAlerts = document.querySelector("#rooms-alerts");
+
+    const property = data.property || {};
+    const rooms = data.rooms || { total: 0, byStatus: {} };
+    const byStatus = rooms.byStatus || {};
+    const byPriority = data.oosRoomsByPriority || {};
+    const totalRooms = rooms.total || property.totalRooms || 0;
+    const inService = byStatus["In Service"] || 0;
+    const oooRooms = byStatus.OOO || 0;
+    const unavailableRooms = totalRooms - inService;
+    const availabilityRate = totalRooms > 0 ? Math.round((inService / totalRooms) * 100) : 0;
+    const criticalRooms = byPriority.Critical || 0;
+    const highRooms = byPriority.High || 0;
+
+    if (propertyName) {
+      propertyName.textContent = property.name || "No active property";
+    }
+
+    if (propertyLocation) {
+      const locationParts = [property.location, property.brandFlag].filter(Boolean);
+      propertyLocation.textContent = locationParts.length > 0 ? locationParts.join(" / ") : "active recovery property";
+    }
+
+    renderCountCards(propertyCounts, ["Availability", "OOO Rooms", "High+ Priority"], {
+      Availability: `${availabilityRate}%`,
+      "OOO Rooms": oooRooms,
+      "High+ Priority": criticalRooms + highRooms
+    });
+
+    if (propertyPriorities) {
+      propertyPriorities.innerHTML = `
+        <p class="admin-recent-heading">OOO rooms by priority</p>
+        <div class="admin-counts">
+          ${priorityTracked
+            .map(
+              (priority) => `
+                <div class="admin-count-card">
+                  <strong>${byPriority[priority] || 0}</strong>
+                  <span>${escapeHtml(priority)}</span>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+      `;
+    }
+
+    if (roomsTotal) {
+      roomsTotal.textContent = totalRooms;
+    }
+
+    if (roomsLabel) {
+      roomsLabel.textContent = `${inService} in service / ${unavailableRooms} unavailable`;
+    }
+
+    renderCountCards(roomsCounts, roomTracked, byStatus);
+
+    if (roomsAlerts) {
+      roomsAlerts.innerHTML = `
+        <p class="admin-recent-heading">Recovery signals</p>
+        <div class="admin-recent-item">
+          <div class="admin-recent-main">
+            <strong>${availabilityRate}% availability</strong>
+            <span>${inService} of ${totalRooms} rooms currently in service</span>
+          </div>
+          <div class="admin-recent-meta">
+            <span class="status-pill">${oooRooms} OOO</span>
+          </div>
+        </div>
+        <div class="admin-recent-item">
+          <div class="admin-recent-main">
+            <strong>${criticalRooms + highRooms} high-priority rooms</strong>
+            <span>${criticalRooms} critical / ${highRooms} high priority</span>
+          </div>
+          <div class="admin-recent-meta">
+            <span class="status-pill">${escapeHtml(property.status || "Active")}</span>
+          </div>
+        </div>
+      `;
+    }
+  }
+
   async function loadSummary() {
     setStatus(loadStatus, "Loading...", "");
 
     try {
-      const payload = await apiFetch("/api/admin/summary");
-      renderSection("inquiry", payload.inquiries, inquiryTracked);
-      renderSection("consultant", payload.consultants, consultantTracked);
+      const [adminResult, propertyResult] = await Promise.allSettled([
+        apiFetch("/api/admin/summary"),
+        apiFetch("/api/admin/property/summary")
+      ]);
+
+      if (adminResult.status === "rejected") {
+        throw adminResult.reason;
+      }
+
+      renderSection("inquiry", adminResult.value.inquiries, inquiryTracked);
+      renderSection("consultant", adminResult.value.consultants, consultantTracked);
+
+      if (propertyResult.status === "fulfilled") {
+        renderPropertySummary(propertyResult.value);
+      } else {
+        renderPropertySummary({ property: null, rooms: { total: 0, byStatus: {} }, oosRoomsByPriority: {} });
+      }
+
       showDashboard();
       setStatus(loadStatus, "", "");
     } catch (error) {

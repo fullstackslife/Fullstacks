@@ -1397,6 +1397,12 @@ h3 {
   color: var(--accent-bright);
 }
 
+.admin-overview-name {
+  max-width: 36ch;
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
 .admin-overview-total-label {
   margin: 4px 0 0;
   color: var(--muted);
