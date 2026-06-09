@@ -347,6 +347,8 @@ const propertyLifecycleStatuses = [
   "Archived"
 ];
 const propertyLifecycleStatusOptions = new Set(propertyLifecycleStatuses);
+const consultantAssignmentStatuses = ["Proposed", "Contacted", "Interviewing", "Assigned", "Active", "Completed", "Declined", "Removed"];
+const consultantAssignmentStatusOptions = new Set(consultantAssignmentStatuses);
 
 function mapProperty(row) {
   return {
@@ -371,6 +373,28 @@ function mapProperty(row) {
     status: row.status || "Active",
     notes: row.notes,
     onboardingNotes: row.onboarding_notes
+  };
+}
+
+function mapConsultantAssignment(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    propertyId: row.property_id,
+    consultantApplicationId: row.consultant_application_id,
+    role: row.role,
+    status: row.status || "Proposed",
+    notes: row.notes,
+    propertyName: row.property_name,
+    propertyLocation: row.property_location,
+    propertyLifecycleStatus: row.property_lifecycle_status,
+    consultantName: row.consultant_name,
+    consultantEmail: row.consultant_email,
+    consultantPhone: row.consultant_phone,
+    consultantRole: row.consultant_role,
+    consultantState: row.consultant_state,
+    consultantAvailability: row.consultant_availability
   };
 }
 
@@ -718,6 +742,47 @@ async function initializeDatabase() {
     await runMigration(
       "index properties by source inquiry",
       `CREATE INDEX IF NOT EXISTS idx_properties_source_inquiry_id ON properties(source_inquiry_id)`
+    ),
+    await runMigration(
+      "create property consultant assignments table",
+      `
+      CREATE TABLE IF NOT EXISTS property_consultant_assignments (
+        id SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        property_id INTEGER NOT NULL REFERENCES properties(id),
+        consultant_application_id INTEGER NOT NULL REFERENCES consultant_applications(id),
+        role TEXT,
+        status TEXT NOT NULL DEFAULT 'Proposed',
+        notes TEXT,
+        UNIQUE (property_id, consultant_application_id)
+      )
+      `
+    ),
+    await runMigration(
+      "repair property consultant assignments columns",
+      `
+      ALTER TABLE property_consultant_assignments
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS property_id INTEGER REFERENCES properties(id),
+        ADD COLUMN IF NOT EXISTS consultant_application_id INTEGER REFERENCES consultant_applications(id),
+        ADD COLUMN IF NOT EXISTS role TEXT,
+        ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Proposed',
+        ADD COLUMN IF NOT EXISTS notes TEXT
+      `
+    ),
+    await runMigration(
+      "index consultant assignments by property",
+      `CREATE INDEX IF NOT EXISTS idx_property_consultant_assignments_property_id ON property_consultant_assignments(property_id)`
+    ),
+    await runMigration(
+      "index consultant assignments by consultant",
+      `CREATE INDEX IF NOT EXISTS idx_property_consultant_assignments_consultant_id ON property_consultant_assignments(consultant_application_id)`
+    ),
+    await runMigration(
+      "index consultant assignments by status",
+      `CREATE INDEX IF NOT EXISTS idx_property_consultant_assignments_status ON property_consultant_assignments(status)`
     ),
     await runMigration(
       "create vendors table",
@@ -2675,6 +2740,238 @@ async function handleUpdatePropertyLifecycleStatus(req, res, propertyId) {
   }
 }
 
+function consultantAssignmentSelectSql(whereClause) {
+  return `
+    SELECT
+      a.id,
+      a.created_at,
+      a.updated_at,
+      a.property_id,
+      a.consultant_application_id,
+      a.role,
+      a.status,
+      a.notes,
+      p.name AS property_name,
+      p.location AS property_location,
+      p.lifecycle_status AS property_lifecycle_status,
+      CONCAT(c.first_name, ' ', c.last_name) AS consultant_name,
+      c.email AS consultant_email,
+      c.phone AS consultant_phone,
+      c.current_hospitality_role AS consultant_role,
+      c.state AS consultant_state,
+      c.availability AS consultant_availability
+    FROM property_consultant_assignments a
+    JOIN properties p ON p.id = a.property_id
+    JOIN consultant_applications c ON c.id = a.consultant_application_id
+    ${whereClause}
+    ORDER BY
+      CASE a.status
+        WHEN 'Active' THEN 1
+        WHEN 'Assigned' THEN 2
+        WHEN 'Interviewing' THEN 3
+        WHEN 'Contacted' THEN 4
+        WHEN 'Proposed' THEN 5
+        WHEN 'Completed' THEN 6
+        WHEN 'Declined' THEN 7
+        WHEN 'Removed' THEN 8
+        ELSE 9
+      END,
+      a.updated_at DESC NULLS LAST,
+      a.created_at DESC,
+      a.id DESC
+  `;
+}
+
+async function handleListPropertyConsultants(req, res, propertyId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(propertyId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid property ID." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(consultantAssignmentSelectSql("WHERE a.property_id = $1"), [propertyId]);
+    sendJson(res, 200, {
+      ok: true,
+      statuses: consultantAssignmentStatuses,
+      assignments: result.rows.map(mapConsultantAssignment)
+    });
+  } catch (error) {
+    console.error("List property consultant assignments error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load consultant assignments." });
+  }
+}
+
+async function handleListConsultantProperties(req, res, consultantId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(consultantId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid consultant ID." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const result = await pool.query(consultantAssignmentSelectSql("WHERE a.consultant_application_id = $1"), [consultantId]);
+    sendJson(res, 200, {
+      ok: true,
+      statuses: consultantAssignmentStatuses,
+      assignments: result.rows.map(mapConsultantAssignment)
+    });
+  } catch (error) {
+    console.error("List consultant property assignments error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load property assignments." });
+  }
+}
+
+async function handleCreateConsultantAssignment(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const propertyId = parseInt(payload.propertyId, 10);
+  const consultantApplicationId = parseInt(payload.consultantApplicationId, 10);
+  const role = cleanString(payload.role);
+  const status = cleanString(payload.status) || "Proposed";
+  const notes = cleanString(payload.notes);
+
+  if (!Number.isInteger(propertyId) || propertyId <= 0) {
+    sendJson(res, 400, { ok: false, error: "Valid propertyId is required." });
+    return;
+  }
+
+  if (!Number.isInteger(consultantApplicationId) || consultantApplicationId <= 0) {
+    sendJson(res, 400, { ok: false, error: "Valid consultantApplicationId is required." });
+    return;
+  }
+
+  if (!consultantAssignmentStatusOptions.has(status)) {
+    sendJson(res, 400, { ok: false, error: "Invalid assignment status." });
+    return;
+  }
+
+  if (notes.length > 4000) {
+    sendJson(res, 400, { ok: false, error: "Assignment notes exceed maximum length of 4000 characters." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const existing = await pool.query(
+      `
+        SELECT id
+        FROM property_consultant_assignments
+        WHERE property_id = $1 AND consultant_application_id = $2
+        LIMIT 1
+      `,
+      [propertyId, consultantApplicationId]
+    );
+
+    const result =
+      existing.rows.length > 0
+        ? await pool.query(
+            `
+              UPDATE property_consultant_assignments
+              SET role = $1,
+                  status = $2,
+                  notes = COALESCE($3, notes),
+                  updated_at = NOW()
+              WHERE id = $4
+              RETURNING id
+            `,
+            [role || null, status, notes || null, existing.rows[0].id]
+          )
+        : await pool.query(
+            `
+              INSERT INTO property_consultant_assignments (
+                property_id, consultant_application_id, role, status, notes, updated_at
+              )
+              VALUES ($1, $2, $3, $4, $5, NOW())
+              RETURNING id
+            `,
+            [propertyId, consultantApplicationId, role || null, status, notes || null]
+          );
+
+    const assignment = await pool.query(consultantAssignmentSelectSql("WHERE a.id = $1"), [result.rows[0].id]);
+    sendJson(res, 201, { ok: true, assignment: mapConsultantAssignment(assignment.rows[0]) });
+  } catch (error) {
+    console.error("Create consultant assignment error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to create consultant assignment." });
+  }
+}
+
+async function handleUpdateConsultantAssignmentStatus(req, res, assignmentId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(assignmentId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid assignment ID." });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const status = cleanString(payload.status);
+
+  if (!consultantAssignmentStatusOptions.has(status)) {
+    sendJson(res, 400, { ok: false, error: "Invalid assignment status." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const update = await pool.query(
+      `
+        UPDATE property_consultant_assignments
+        SET status = $1, updated_at = NOW()
+        WHERE id = $2
+        RETURNING id
+      `,
+      [status, assignmentId]
+    );
+
+    if (update.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Assignment not found." });
+      return;
+    }
+
+    const assignment = await pool.query(consultantAssignmentSelectSql("WHERE a.id = $1"), [assignmentId]);
+    sendJson(res, 200, { ok: true, assignment: mapConsultantAssignment(assignment.rows[0]) });
+  } catch (error) {
+    console.error("Update consultant assignment status error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to update assignment status." });
+  }
+}
+
 async function handleAdminSummary(req, res) {
   if (!requireAdmin(req, res)) return;
 
@@ -2861,6 +3158,29 @@ const server = http.createServer((req, res) => {
   const propertyLifecycleMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/lifecycle-status$/);
   if (req.method === "PATCH" && propertyLifecycleMatch) {
     handleUpdatePropertyLifecycleStatus(req, res, propertyLifecycleMatch[1]);
+    return;
+  }
+
+  const propertyConsultantsMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/consultants$/);
+  if (req.method === "GET" && propertyConsultantsMatch) {
+    handleListPropertyConsultants(req, res, propertyConsultantsMatch[1]);
+    return;
+  }
+
+  const consultantPropertiesMatch = parsedUrl.pathname.match(/^\/api\/admin\/consultant-applications\/(\d+)\/properties$/);
+  if (req.method === "GET" && consultantPropertiesMatch) {
+    handleListConsultantProperties(req, res, consultantPropertiesMatch[1]);
+    return;
+  }
+
+  if (req.method === "POST" && parsedUrl.pathname === "/api/admin/consultant-assignments") {
+    handleCreateConsultantAssignment(req, res);
+    return;
+  }
+
+  const consultantAssignmentStatusMatch = parsedUrl.pathname.match(/^\/api\/admin\/consultant-assignments\/(\d+)\/status$/);
+  if (req.method === "PATCH" && consultantAssignmentStatusMatch) {
+    handleUpdateConsultantAssignmentStatus(req, res, consultantAssignmentStatusMatch[1]);
     return;
   }
 

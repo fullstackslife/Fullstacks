@@ -1,8 +1,11 @@
 (function () {
   const storageKey = "fullstacksAdminToken";
   const statuses = ["New", "Reviewing", "Interview", "Qualified", "Available", "Placed", "Inactive", "Rejected"];
+  const assignmentStatuses = ["Proposed", "Contacted", "Interviewing", "Assigned", "Active", "Completed", "Declined", "Removed"];
   let adminToken = localStorage.getItem(storageKey) || "";
   let applications = [];
+  let propertyOptions = [];
+  const assignmentsByConsultant = new Map();
   let selectedApplicationId = null;
   let pageOffset = 0;
   let pageTotal = 0;
@@ -230,6 +233,16 @@
       return;
     }
 
+    const propertyOptionsHtml = propertyOptions
+      .map(
+        (property) =>
+          `<option value="${property.id}">${escapeHtml(`${property.name} - ${property.location || "No location"} - ${property.lifecycleStatus}`)}</option>`
+      )
+      .join("");
+    const assignmentStatusOptions = assignmentStatuses
+      .map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`)
+      .join("");
+
     detail.innerHTML = `
       <div class="detail-heading">
         <div>
@@ -265,7 +278,94 @@
         ${detailItem("Compensation Expectations", application.compensationExpectations)}
         ${detailItem("Notes / Message", application.notes)}
       </dl>
+
+      <h3 class="detail-section-heading">Client / Property Matches</h3>
+      <div class="detail-notes">
+        <div id="consultant-assignments">
+          <p class="empty-detail">Loading property assignments...</p>
+        </div>
+        <div class="assignment-create">
+          <label for="assignment-property">
+            <span>Property</span>
+          </label>
+          <select id="assignment-property">
+            <option value="">Select property</option>
+            ${propertyOptionsHtml}
+          </select>
+          <label for="assignment-role">
+            <span>Role / Need</span>
+          </label>
+          <input id="assignment-role" type="text" maxlength="160" placeholder="Task force GM, housekeeping, revenue, etc." />
+          <label for="assignment-status">
+            <span>Assignment Status</span>
+          </label>
+          <select id="assignment-status">${assignmentStatusOptions}</select>
+          <label for="assignment-notes">
+            <span>Assignment Notes</span>
+          </label>
+          <textarea id="assignment-notes" maxlength="4000" rows="3" placeholder="Why this consultant may fit this property..."></textarea>
+          <div class="detail-notes-footer">
+            <p class="form-status" id="assignment-create-status" role="status" aria-live="polite"></p>
+            <button class="button secondary" id="create-assignment-btn" type="button">Assign To Property</button>
+          </div>
+        </div>
+      </div>
     `;
+
+    renderAssignments(application.id);
+    loadAssignments(application.id);
+  }
+
+  function renderAssignments(applicationId) {
+    const container = document.querySelector("#consultant-assignments");
+    if (!container) return;
+    const assignments = assignmentsByConsultant.get(applicationId) || [];
+
+    if (assignments.length === 0) {
+      container.innerHTML = '<p class="empty-detail">No property assignments yet.</p>';
+      return;
+    }
+
+    container.innerHTML = assignments
+      .map((assignment) => {
+        const statusOptions = assignmentStatuses
+          .map(
+            (status) =>
+              `<option value="${escapeHtml(status)}"${status === assignment.status ? " selected" : ""}>${escapeHtml(status)}</option>`
+          )
+          .join("");
+        return `
+          <div class="admin-recent-item assignment-item" data-assignment-id="${assignment.id}">
+            <div class="admin-recent-main">
+              <strong>${escapeHtml(assignment.propertyName)}</strong>
+              <span>${escapeHtml([assignment.role, assignment.propertyLocation, assignment.propertyLifecycleStatus].filter(Boolean).join(" / "))}</span>
+              ${assignment.notes ? `<small>${escapeHtml(assignment.notes)}</small>` : ""}
+            </div>
+            <div class="admin-recent-meta">
+              <select class="assignment-status-select" data-assignment-id="${assignment.id}">
+                ${statusOptions}
+              </select>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  async function loadPropertyOptions() {
+    const payload = await apiFetch("/api/admin/properties?limit=200");
+    propertyOptions = payload.properties || [];
+  }
+
+  async function loadAssignments(applicationId) {
+    try {
+      const payload = await apiFetch(`/api/admin/consultant-applications/${applicationId}/properties`);
+      assignmentsByConsultant.set(applicationId, payload.assignments || []);
+      if (selectedApplicationId === applicationId) renderAssignments(applicationId);
+    } catch (error) {
+      const container = document.querySelector("#consultant-assignments");
+      if (container) container.innerHTML = `<p class="empty-detail">${escapeHtml(error.message)}</p>`;
+    }
   }
 
   async function loadApplications(append) {
@@ -276,6 +376,9 @@
     setStatus(loadStatus, append ? "Loading more..." : "Loading applications...", "");
 
     try {
+      if (propertyOptions.length === 0) {
+        await loadPropertyOptions();
+      }
       const params = getFilters();
       params.set("limit", "50");
       params.set("offset", String(pageOffset));
@@ -339,6 +442,60 @@
     }
   }
 
+  async function createAssignment(applicationId) {
+    const property = document.querySelector("#assignment-property");
+    const role = document.querySelector("#assignment-role");
+    const status = document.querySelector("#assignment-status");
+    const notes = document.querySelector("#assignment-notes");
+    const formStatus = document.querySelector("#assignment-create-status");
+
+    if (!property || !property.value) {
+      setStatus(formStatus, "Select a property first.", "error");
+      return;
+    }
+
+    setStatus(formStatus, "Assigning property...", "");
+    try {
+      await apiFetch("/api/admin/consultant-assignments", {
+        method: "POST",
+        body: JSON.stringify({
+          propertyId: property.value,
+          consultantApplicationId: applicationId,
+          role: role ? role.value : "",
+          status: status ? status.value : "Proposed",
+          notes: notes ? notes.value : ""
+        })
+      });
+      if (role) role.value = "";
+      if (notes) notes.value = "";
+      await loadAssignments(applicationId);
+      setStatus(formStatus, "Property assignment saved.", "success");
+    } catch (error) {
+      setStatus(formStatus, error.message, "error");
+    }
+  }
+
+  async function updateAssignmentStatus(assignmentId, status) {
+    setStatus(loadStatus, "Updating assignment...", "");
+    try {
+      const payload = await apiFetch(`/api/admin/consultant-assignments/${assignmentId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status })
+      });
+      const applicationId = payload.assignment.consultantApplicationId;
+      const assignments = assignmentsByConsultant.get(applicationId) || [];
+      assignmentsByConsultant.set(
+        applicationId,
+        assignments.map((assignment) => (assignment.id === payload.assignment.id ? payload.assignment : assignment))
+      );
+      renderAssignments(applicationId);
+      setStatus(loadStatus, `Assignment updated to ${status}.`, "success");
+    } catch (error) {
+      setStatus(loadStatus, error.message, "error");
+      if (selectedApplicationId) renderAssignments(selectedApplicationId);
+    }
+  }
+
   populateStatuses();
 
   tokenForm.addEventListener("submit", async (event) => {
@@ -382,11 +539,19 @@
   });
 
   detail.addEventListener("change", (event) => {
-    if (event.target.id !== "application-status" || !selectedApplicationId) {
-      return;
+    if (event.target.id === "application-status" && selectedApplicationId) {
+      updateStatus(selectedApplicationId, event.target.value);
     }
 
-    updateStatus(selectedApplicationId, event.target.value);
+    if (event.target.classList.contains("assignment-status-select")) {
+      updateAssignmentStatus(Number(event.target.dataset.assignmentId), event.target.value);
+    }
+  });
+
+  detail.addEventListener("click", (event) => {
+    if (event.target.id === "create-assignment-btn" && selectedApplicationId) {
+      createAssignment(selectedApplicationId);
+    }
   });
 
   if (exportCsvBtn) {

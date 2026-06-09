@@ -1,8 +1,11 @@
 (function () {
   const storageKey = "fullstacksAdminToken";
   const statuses = ["Lead", "Discovery", "Assessment", "Active Recovery", "Monitoring", "Closed Won", "Closed Lost", "Archived"];
+  const assignmentStatuses = ["Proposed", "Contacted", "Interviewing", "Assigned", "Active", "Completed", "Declined", "Removed"];
   let adminToken = localStorage.getItem(storageKey) || "";
   let properties = [];
+  let consultantOptions = [];
+  const assignmentsByProperty = new Map();
   let selectedPropertyId = null;
   let pageOffset = 0;
   let pageTotal = 0;
@@ -185,6 +188,15 @@
           `<option value="${escapeHtml(status)}"${status === property.lifecycleStatus ? " selected" : ""}>${escapeHtml(status)}</option>`
       )
       .join("");
+    const consultantOptionsHtml = consultantOptions
+      .map(
+        (consultant) =>
+          `<option value="${consultant.id}">${escapeHtml(`${consultant.name} - ${consultant.currentRole || "Consultant"} - ${consultant.availability || "Availability TBD"}`)}</option>`
+      )
+      .join("");
+    const assignmentStatusOptions = assignmentStatuses
+      .map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`)
+      .join("");
 
     detail.innerHTML = `
       <div class="detail-heading">
@@ -228,7 +240,94 @@
         <p class="detail-message-label">Onboarding Notes</p>
         <p>${escapeHtml(property.onboardingNotes || property.notes || "No notes yet.")}</p>
       </div>
+
+      <h3 class="detail-section-heading">Consultant Matches</h3>
+      <div class="detail-notes">
+        <div id="property-assignments">
+          <p class="empty-detail">Loading consultant assignments...</p>
+        </div>
+        <div class="assignment-create">
+          <label for="assignment-consultant">
+            <span>Consultant</span>
+          </label>
+          <select id="assignment-consultant">
+            <option value="">Select consultant</option>
+            ${consultantOptionsHtml}
+          </select>
+          <label for="assignment-role">
+            <span>Role / Need</span>
+          </label>
+          <input id="assignment-role" type="text" maxlength="160" placeholder="Task force GM, housekeeping, revenue, etc." />
+          <label for="assignment-status">
+            <span>Assignment Status</span>
+          </label>
+          <select id="assignment-status">${assignmentStatusOptions}</select>
+          <label for="assignment-notes">
+            <span>Assignment Notes</span>
+          </label>
+          <textarea id="assignment-notes" maxlength="4000" rows="3" placeholder="Why this consultant may fit this property..."></textarea>
+          <div class="detail-notes-footer">
+            <p class="form-status" id="assignment-create-status" role="status" aria-live="polite"></p>
+            <button class="button secondary" id="create-assignment-btn" type="button">Assign Consultant</button>
+          </div>
+        </div>
+      </div>
     `;
+
+    renderAssignments(property.id);
+    loadAssignments(property.id);
+  }
+
+  function renderAssignments(propertyId) {
+    const container = document.querySelector("#property-assignments");
+    if (!container) return;
+    const assignments = assignmentsByProperty.get(propertyId) || [];
+
+    if (assignments.length === 0) {
+      container.innerHTML = '<p class="empty-detail">No consultants assigned yet.</p>';
+      return;
+    }
+
+    container.innerHTML = assignments
+      .map((assignment) => {
+        const statusOptions = assignmentStatuses
+          .map(
+            (status) =>
+              `<option value="${escapeHtml(status)}"${status === assignment.status ? " selected" : ""}>${escapeHtml(status)}</option>`
+          )
+          .join("");
+        return `
+          <div class="admin-recent-item assignment-item" data-assignment-id="${assignment.id}">
+            <div class="admin-recent-main">
+              <strong>${escapeHtml(assignment.consultantName)}</strong>
+              <span>${escapeHtml([assignment.role, assignment.consultantRole, assignment.consultantAvailability].filter(Boolean).join(" / "))}</span>
+              ${assignment.notes ? `<small>${escapeHtml(assignment.notes)}</small>` : ""}
+            </div>
+            <div class="admin-recent-meta">
+              <select class="assignment-status-select" data-assignment-id="${assignment.id}">
+                ${statusOptions}
+              </select>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  async function loadConsultantOptions() {
+    const payload = await apiFetch("/api/admin/consultant-applications?limit=200");
+    consultantOptions = payload.consultants || [];
+  }
+
+  async function loadAssignments(propertyId) {
+    try {
+      const payload = await apiFetch(`/api/admin/properties/${propertyId}/consultants`);
+      assignmentsByProperty.set(propertyId, payload.assignments || []);
+      if (selectedPropertyId === propertyId) renderAssignments(propertyId);
+    } catch (error) {
+      const container = document.querySelector("#property-assignments");
+      if (container) container.innerHTML = `<p class="empty-detail">${escapeHtml(error.message)}</p>`;
+    }
   }
 
   async function loadProperties(append) {
@@ -236,6 +335,9 @@
     setStatus(loadStatus, append ? "Loading more..." : "Loading properties...", "");
 
     try {
+      if (consultantOptions.length === 0) {
+        await loadConsultantOptions();
+      }
       const params = getFilters();
       params.set("limit", "50");
       params.set("offset", String(pageOffset));
@@ -306,6 +408,60 @@
     }
   }
 
+  async function createAssignment(propertyId) {
+    const consultant = document.querySelector("#assignment-consultant");
+    const role = document.querySelector("#assignment-role");
+    const status = document.querySelector("#assignment-status");
+    const notes = document.querySelector("#assignment-notes");
+    const formStatus = document.querySelector("#assignment-create-status");
+
+    if (!consultant || !consultant.value) {
+      setStatus(formStatus, "Select a consultant first.", "error");
+      return;
+    }
+
+    setStatus(formStatus, "Assigning consultant...", "");
+    try {
+      await apiFetch("/api/admin/consultant-assignments", {
+        method: "POST",
+        body: JSON.stringify({
+          propertyId,
+          consultantApplicationId: consultant.value,
+          role: role ? role.value : "",
+          status: status ? status.value : "Proposed",
+          notes: notes ? notes.value : ""
+        })
+      });
+      if (role) role.value = "";
+      if (notes) notes.value = "";
+      await loadAssignments(propertyId);
+      setStatus(formStatus, "Consultant assignment saved.", "success");
+    } catch (error) {
+      setStatus(formStatus, error.message, "error");
+    }
+  }
+
+  async function updateAssignmentStatus(assignmentId, status) {
+    setStatus(loadStatus, "Updating assignment...", "");
+    try {
+      const payload = await apiFetch(`/api/admin/consultant-assignments/${assignmentId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status })
+      });
+      const propertyId = payload.assignment.propertyId;
+      const assignments = assignmentsByProperty.get(propertyId) || [];
+      assignmentsByProperty.set(
+        propertyId,
+        assignments.map((assignment) => (assignment.id === payload.assignment.id ? payload.assignment : assignment))
+      );
+      renderAssignments(propertyId);
+      setStatus(loadStatus, `Assignment updated to ${status}.`, "success");
+    } catch (error) {
+      setStatus(loadStatus, error.message, "error");
+      if (selectedPropertyId) renderAssignments(selectedPropertyId);
+    }
+  }
+
   populateStatuses();
 
   tokenForm.addEventListener("submit", async (event) => {
@@ -359,6 +515,16 @@
   detail.addEventListener("change", (event) => {
     if (event.target.id === "property-lifecycle-status" && selectedPropertyId) {
       updateLifecycleStatus(selectedPropertyId, event.target.value);
+    }
+
+    if (event.target.classList.contains("assignment-status-select")) {
+      updateAssignmentStatus(Number(event.target.dataset.assignmentId), event.target.value);
+    }
+  });
+
+  detail.addEventListener("click", (event) => {
+    if (event.target.id === "create-assignment-btn" && selectedPropertyId) {
+      createAssignment(selectedPropertyId);
     }
   });
 
