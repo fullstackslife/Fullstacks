@@ -644,6 +644,21 @@ async function initializeDatabase() {
       `
     ),
     await runMigration(
+      "repair properties table columns",
+      `
+      ALTER TABLE properties
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS name TEXT,
+        ADD COLUMN IF NOT EXISTS location TEXT,
+        ADD COLUMN IF NOT EXISTS brand_flag TEXT,
+        ADD COLUMN IF NOT EXISTS total_rooms INTEGER,
+        ADD COLUMN IF NOT EXISTS management_co TEXT,
+        ADD COLUMN IF NOT EXISTS owner_name TEXT,
+        ADD COLUMN IF NOT EXISTS notes TEXT,
+        ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Active'
+      `
+    ),
+    await runMigration(
       "create vendors table",
       `
       CREATE TABLE IF NOT EXISTS vendors (
@@ -657,6 +672,20 @@ async function initializeDatabase() {
         notes        TEXT,
         status       TEXT DEFAULT 'Active'
       )
+      `
+    ),
+    await runMigration(
+      "repair vendors table columns",
+      `
+      ALTER TABLE vendors
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS name TEXT,
+        ADD COLUMN IF NOT EXISTS trade TEXT,
+        ADD COLUMN IF NOT EXISTS contact_name TEXT,
+        ADD COLUMN IF NOT EXISTS phone TEXT,
+        ADD COLUMN IF NOT EXISTS email TEXT,
+        ADD COLUMN IF NOT EXISTS notes TEXT,
+        ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Active'
       `
     ),
     await runMigration(
@@ -681,6 +710,23 @@ async function initializeDatabase() {
         notes       TEXT,
         UNIQUE (property_id, room_number)
       )
+      `
+    ),
+    await runMigration(
+      "repair rooms table columns",
+      `
+      ALTER TABLE rooms
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS property_id INTEGER REFERENCES properties(id),
+        ADD COLUMN IF NOT EXISTS room_number TEXT,
+        ADD COLUMN IF NOT EXISTS floor INTEGER,
+        ADD COLUMN IF NOT EXISTS room_type TEXT,
+        ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'In Service',
+        ADD COLUMN IF NOT EXISTS oos_reason TEXT,
+        ADD COLUMN IF NOT EXISTS return_date DATE,
+        ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Medium',
+        ADD COLUMN IF NOT EXISTS notes TEXT
       `
     ),
     await runMigration(
@@ -714,6 +760,26 @@ async function initializeDatabase() {
       `
     ),
     await runMigration(
+      "repair issues table columns",
+      `
+      ALTER TABLE issues
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS property_id INTEGER REFERENCES properties(id),
+        ADD COLUMN IF NOT EXISTS room_id INTEGER REFERENCES rooms(id),
+        ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id),
+        ADD COLUMN IF NOT EXISTS title TEXT,
+        ADD COLUMN IF NOT EXISTS description TEXT,
+        ADD COLUMN IF NOT EXISTS category TEXT,
+        ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Medium',
+        ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Open',
+        ADD COLUMN IF NOT EXISTS scheduled_date DATE,
+        ADD COLUMN IF NOT EXISTS resolved_date DATE,
+        ADD COLUMN IF NOT EXISTS estimated_cost NUMERIC(10,2),
+        ADD COLUMN IF NOT EXISTS notes TEXT
+      `
+    ),
+    await runMigration(
       "index issues by property_id",
       `CREATE INDEX IF NOT EXISTS idx_issues_property_id ON issues(property_id)`
     ),
@@ -739,6 +805,16 @@ async function initializeDatabase() {
         note       TEXT NOT NULL,
         author     TEXT DEFAULT 'Admin'
       )
+      `
+    ),
+    await runMigration(
+      "repair issue_notes table columns",
+      `
+      ALTER TABLE issue_notes
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS issue_id INTEGER REFERENCES issues(id),
+        ADD COLUMN IF NOT EXISTS note TEXT,
+        ADD COLUMN IF NOT EXISTS author TEXT DEFAULT 'Admin'
       `
     ),
     await runMigration(
