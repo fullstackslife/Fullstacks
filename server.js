@@ -622,6 +622,246 @@ async function initializeDatabase() {
     await runMigration(
       "index inquiries by urgency",
       `CREATE INDEX IF NOT EXISTS idx_inquiries_urgency ON inquiries(urgency)`
+    ),
+
+    // ── Property Recovery Dashboard ────────────────────────────────────────
+
+    await runMigration(
+      "create properties table",
+      `
+      CREATE TABLE IF NOT EXISTS properties (
+        id            SERIAL PRIMARY KEY,
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        name          TEXT NOT NULL,
+        location      TEXT,
+        brand_flag    TEXT,
+        total_rooms   INTEGER,
+        management_co TEXT,
+        owner_name    TEXT,
+        notes         TEXT,
+        status        TEXT DEFAULT 'Active'
+      )
+      `
+    ),
+    await runMigration(
+      "create vendors table",
+      `
+      CREATE TABLE IF NOT EXISTS vendors (
+        id           SERIAL PRIMARY KEY,
+        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        name         TEXT NOT NULL,
+        trade        TEXT,
+        contact_name TEXT,
+        phone        TEXT,
+        email        TEXT,
+        notes        TEXT,
+        status       TEXT DEFAULT 'Active'
+      )
+      `
+    ),
+    await runMigration(
+      "index vendors by status",
+      `CREATE INDEX IF NOT EXISTS idx_vendors_status ON vendors(status)`
+    ),
+    await runMigration(
+      "create rooms table",
+      `
+      CREATE TABLE IF NOT EXISTS rooms (
+        id          SERIAL PRIMARY KEY,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ DEFAULT NOW(),
+        property_id INTEGER NOT NULL REFERENCES properties(id),
+        room_number TEXT NOT NULL,
+        floor       INTEGER,
+        room_type   TEXT,
+        status      TEXT NOT NULL DEFAULT 'In Service',
+        oos_reason  TEXT,
+        return_date DATE,
+        priority    TEXT DEFAULT 'Normal',
+        notes       TEXT,
+        UNIQUE (property_id, room_number)
+      )
+      `
+    ),
+    await runMigration(
+      "index rooms by property_id",
+      `CREATE INDEX IF NOT EXISTS idx_rooms_property_id ON rooms(property_id)`
+    ),
+    await runMigration(
+      "index rooms by status",
+      `CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status)`
+    ),
+    await runMigration(
+      "create issues table",
+      `
+      CREATE TABLE IF NOT EXISTS issues (
+        id             SERIAL PRIMARY KEY,
+        created_at     TIMESTAMPTZ DEFAULT NOW(),
+        updated_at     TIMESTAMPTZ DEFAULT NOW(),
+        property_id    INTEGER NOT NULL REFERENCES properties(id),
+        room_id        INTEGER REFERENCES rooms(id),
+        vendor_id      INTEGER REFERENCES vendors(id),
+        title          TEXT NOT NULL,
+        description    TEXT,
+        category       TEXT,
+        priority       TEXT NOT NULL DEFAULT 'Normal',
+        status         TEXT NOT NULL DEFAULT 'Open',
+        scheduled_date DATE,
+        resolved_date  DATE,
+        estimated_cost NUMERIC(10,2),
+        notes          TEXT
+      )
+      `
+    ),
+    await runMigration(
+      "index issues by property_id",
+      `CREATE INDEX IF NOT EXISTS idx_issues_property_id ON issues(property_id)`
+    ),
+    await runMigration(
+      "index issues by room_id",
+      `CREATE INDEX IF NOT EXISTS idx_issues_room_id ON issues(room_id)`
+    ),
+    await runMigration(
+      "index issues by status",
+      `CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)`
+    ),
+    await runMigration(
+      "index issues by priority",
+      `CREATE INDEX IF NOT EXISTS idx_issues_priority ON issues(priority)`
+    ),
+    await runMigration(
+      "create issue_notes table",
+      `
+      CREATE TABLE IF NOT EXISTS issue_notes (
+        id         SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        issue_id   INTEGER NOT NULL REFERENCES issues(id),
+        note       TEXT NOT NULL,
+        author     TEXT DEFAULT 'Admin'
+      )
+      `
+    ),
+    await runMigration(
+      "index issue_notes by issue_id",
+      `CREATE INDEX IF NOT EXISTS idx_issue_notes_issue_id ON issue_notes(issue_id)`
+    ),
+    await runMigration(
+      "seed La Quinta New Cumberland property",
+      `
+      INSERT INTO properties (name, location, brand_flag, total_rooms, status)
+      SELECT
+        'La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg',
+        'New Cumberland, PA',
+        'Wyndham / La Quinta',
+        85,
+        'Active'
+      WHERE NOT EXISTS (SELECT 1 FROM properties LIMIT 1)
+      `
+    ),
+    await runMigration(
+      "seed rooms from initial room status report 2026-06-08",
+      `
+      INSERT INTO rooms (property_id, room_number, floor, room_type, status, oos_reason, priority, notes)
+      SELECT
+        p.id,
+        v.room_number,
+        v.floor,
+        v.room_type,
+        v.status,
+        v.oos_reason,
+        v.priority,
+        v.notes
+      FROM properties p
+      CROSS JOIN (VALUES
+        ('101', 1, 'PNK1', 'OOO',        'no heat, no microwave, no lock, no toilet, no AC, no bed, no TV, no lamps, no shower head, no soap', 'Critical', NULL::TEXT),
+        ('102', 1, 'ENK1', 'In Service', NULL::TEXT, 'Normal', NULL::TEXT),
+        ('103', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('104', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('105', 1, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('106', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('107', 1, 'PNK1', 'In Service', NULL,       'Normal', NULL),
+        ('108', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('109', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('110', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('111', 1, 'PNK1', 'In Service', NULL,       'Normal', NULL),
+        ('112', 1, 'NDD1', 'OOO',        'dresser handle broke, toilet leaks', 'Normal', NULL),
+        ('113', 1, 'NDD1', 'In Service', NULL,       'Normal', 'no heat (occupied long-term)'),
+        ('114', 1, 'NDD1', 'OOO',        'toilet broken, shower head broke, no soap', 'Normal', NULL),
+        ('115', 1, 'PNK1', 'In Service', NULL,       'Normal', NULL),
+        ('129', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('131', 1, 'ENK1', 'In Service', NULL,       'Normal', NULL),
+        ('133', 1, 'PNK1', 'OOO',        'preventative maintenance', 'Normal', NULL),
+        ('134', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('201', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('202', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat, door does not close'),
+        ('203', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat (occupied)'),
+        ('204', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('205', 2, 'NDD1', 'OOO',        'no heat', 'Normal', NULL),
+        ('206', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('207', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('208', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('209', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('210', 2, 'NDD1', 'OOO',        'toilet out of service', 'High', NULL),
+        ('211', 2, 'NDD1', 'OOO',        'no heat', 'Normal', NULL),
+        ('212', 2, 'NDD1', 'In Service', NULL,       'Normal', 'heating issue; room 312 leaking into ceiling'),
+        ('213', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('214', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('215', 2, 'NDD1', 'In Service', NULL,       'Normal', 'air unit issue'),
+        ('216', 2, 'NDD1', 'In Service', NULL,       'Normal', 'air unit not working'),
+        ('217', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat (occupied)'),
+        ('218', 2, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('219', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('220', 2, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('222', 2, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('223', 2, 'NDD1', 'In Service', NULL,       'Normal', 'toilet issue (occupied)'),
+        ('224', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('225', 2, 'NDD1', 'OOO',        'toilet, odor, ceiling leak in bathroom', 'High', NULL),
+        ('226', 2, 'NDD1', 'OOO',        'water intrusion causing lobby leak', 'High', NULL),
+        ('227', 2, 'NDD1', 'In Service', NULL,       'Normal', 'potential leak source for lobby water'),
+        ('228', 2, 'NDD1', 'OOO',        'active leak in room', 'High', NULL),
+        ('229', 2, 'NDD1', 'OOO',        'no heat', 'Normal', NULL),
+        ('230', 2, 'NDD1', 'OOO',        'preventative maintenance', 'Normal', NULL),
+        ('231', 2, 'NDD1', 'In Service', NULL,       'Normal', 'heat and toilet issues'),
+        ('232', 2, 'NDD1', 'In Service', NULL,       'Normal', 'door lock issue'),
+        ('233', 2, 'NDD1', 'In Service', NULL,       'Normal', 'heat not working (occupied)'),
+        ('234', 2, 'NDD1', 'OOO',        'needs ozone treatment for odor', 'Normal', NULL),
+        ('301', 3, 'NDD2', 'OOO',        'door lock battery dead', 'Normal', NULL),
+        ('302', 3, 'NK2',  'OOO',        'door issue', 'Normal', NULL),
+        ('303', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('304', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('305', 3, 'NDD2', 'OOO',        'hole in sink', 'Normal', NULL),
+        ('306', 3, 'NK2',  'In Service', NULL,       'Normal', 'toilet issue'),
+        ('307', 3, 'NDD2', 'In Service', NULL,       'Normal', 'door lock issue (occupied)'),
+        ('308', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('309', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('310', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('311', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('312', 3, 'NK2',  'OOO',        'odor, toilet leaks, no towels', 'Normal', NULL),
+        ('313', 3, 'NDD2', 'OOO',        'no towels', 'Low', NULL),
+        ('314', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('315', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('316', 3, 'NK2',  'OOO',        'wall damage, leaks when raining, no towels', 'High', NULL),
+        ('317', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('318', 3, 'NDD2', 'OOO',        'water leak above TV area, sink backed up, no shower curtain, no microwave, refrigerator barely works, no towels', 'High', NULL),
+        ('319', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('320', 3, 'NDD2', 'OOO',        'sink clogged, no towels', 'Normal', NULL),
+        ('322', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('323', 3, 'NK2',  'In Service', NULL,       'Normal', 'tall lamp broken'),
+        ('324', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('325', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('326', 3, 'NDD2', 'OOO',        'door issue', 'Normal', NULL),
+        ('327', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('328', 3, 'NDD2', 'OOO',        'water pooling outside door, door issue', 'High', NULL),
+        ('329', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('330', 3, 'NDD2', 'OOO',        'hallway ceiling leaking, door issue', 'High', NULL),
+        ('331', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('332', 3, 'NDD2', 'OOO',        'leaks when raining, no towels', 'High', NULL),
+        ('333', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('334', 3, 'NDD2', 'In Service', NULL,       'Normal', 'odor, no towels')
+      ) AS v(room_number, floor, room_type, status, oos_reason, priority, notes)
+      WHERE p.name = 'La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg'
+      ON CONFLICT (property_id, room_number) DO NOTHING
+      `
     )
   ];
 
