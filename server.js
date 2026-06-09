@@ -1943,11 +1943,11 @@ async function handlePropertySummary(req, res) {
   try {
     const [roomStatusResult, roomPriorityResult, propertyResult] = await Promise.all([
       pool.query(
-        `SELECT status, COUNT(*) AS count
+        `SELECT r.status, COUNT(*) AS count
          FROM rooms r
          JOIN properties p ON p.id = r.property_id
          WHERE p.status = 'Active'
-         GROUP BY status`
+         GROUP BY r.status`
       ),
       pool.query(
         `SELECT priority, COUNT(*) AS count
