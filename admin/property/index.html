@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Property Recovery | FullStacks.ink</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/assets/admin-property.js" defer></script>
+  </head>
+  <body class="admin-page">
+    <header class="site-header">
+      <nav class="nav" aria-label="Admin navigation">
+        <a class="brand" href="/admin/property" aria-label="Property Recovery home">
+          <span class="brand-mark" aria-hidden="true">FS</span>
+          <span>
+            <strong>FullStacks.ink</strong>
+            <small>Property Recovery</small>
+          </span>
+        </a>
+        <div class="nav-links">
+          <a href="/admin/property/rooms">Rooms</a>
+          <a href="/admin">Admin Home</a>
+          <a href="/">Public Site</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero" aria-labelledby="admin-title">
+        <p class="section-kicker">Internal Operations</p>
+        <h1 id="admin-title">Property Recovery</h1>
+        <p>Room availability, maintenance status, and recovery overview.</p>
+      </section>
+
+      <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
+        <div class="form-heading">
+          <p class="section-kicker">Protected Access</p>
+          <h2 id="access-title">Enter the admin access token.</h2>
+        </div>
+        <form id="admin-token-form">
+          <div class="form-grid">
+            <label class="full-span">
+              <span>Admin Access Token</span>
+              <input id="admin-token" name="token" type="password" autocomplete="current-password" required />
+            </label>
+          </div>
+          <div class="form-footer">
+            <p class="form-status" id="admin-token-status" role="status" aria-live="polite"></p>
+            <button class="button primary" type="submit">View Dashboard</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-dashboard" id="admin-dashboard" hidden>
+        <div class="admin-summary">
+          <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
+          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
+        </div>
+        <div id="admin-overview-grid"></div>
+      </section>
+    </main>
+  </body>
+</html>

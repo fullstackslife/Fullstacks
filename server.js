@@ -2404,6 +2404,10 @@ const server = http.createServer((req, res) => {
     req.url = "/admin/property/index.html";
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/admin/property/rooms") {
+    req.url = "/admin/property/rooms.html";
+  }
+
   serveStatic(req, res);
 });
 

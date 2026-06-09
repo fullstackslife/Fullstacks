@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Room Status | FullStacks.ink</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/assets/admin-property-rooms.js" defer></script>
+  </head>
+  <body class="admin-page">
+    <header class="site-header">
+      <nav class="nav" aria-label="Admin navigation">
+        <a class="brand" href="/admin/property" aria-label="Property Recovery home">
+          <span class="brand-mark" aria-hidden="true">FS</span>
+          <span>
+            <strong>FullStacks.ink</strong>
+            <small>Room Status</small>
+          </span>
+        </a>
+        <div class="nav-links">
+          <a href="/admin/property">Overview</a>
+          <a href="/admin">Admin Home</a>
+          <a href="/">Public Site</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero" aria-labelledby="admin-title">
+        <p class="section-kicker">Property Recovery</p>
+        <h1 id="admin-title">Room Status</h1>
+        <p>View and update room status, OOS reasons, and return-to-service dates.</p>
+      </section>
+
+      <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
+        <div class="form-heading">
+          <p class="section-kicker">Protected Access</p>
+          <h2 id="access-title">Enter the admin access token.</h2>
+        </div>
+        <form id="admin-token-form">
+          <div class="form-grid">
+            <label class="full-span">
+              <span>Admin Access Token</span>
+              <input id="admin-token" name="token" type="password" autocomplete="current-password" required />
+            </label>
+          </div>
+          <div class="form-footer">
+            <p class="form-status" id="admin-token-status" role="status" aria-live="polite"></p>
+            <button class="button primary" type="submit">View Rooms</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-dashboard" id="admin-dashboard" hidden>
+        <div class="admin-counts" id="admin-counts" aria-label="Room status summary"></div>
+
+        <form class="admin-filters" id="room-filters">
+          <label>
+            <span>Status</span>
+            <select name="status">
+              <option value="">All statuses</option>
+              <option>In Service</option>
+              <option>OOO</option>
+              <option>Maintenance</option>
+              <option>Renovation</option>
+              <option>Mothballed</option>
+            </select>
+          </label>
+          <label>
+            <span>Floor</span>
+            <select name="floor">
+              <option value="">All floors</option>
+              <option value="1">Floor 1</option>
+              <option value="2">Floor 2</option>
+              <option value="3">Floor 3</option>
+            </select>
+          </label>
+          <label>
+            <span>Room Type</span>
+            <select name="room_type">
+              <option value="">All types</option>
+              <option>PNK1</option>
+              <option>ENK1</option>
+              <option>NDD1</option>
+              <option>NDD2</option>
+              <option>NK2</option>
+            </select>
+          </label>
+          <label class="admin-search">
+            <span>Search</span>
+            <input name="q" type="search" maxlength="120" placeholder="Room number, reason, notes" />
+          </label>
+          <div class="admin-filter-actions">
+            <button class="button secondary" type="reset">Clear</button>
+            <button class="button primary" type="submit">Apply</button>
+          </div>
+        </form>
+
+        <div class="admin-summary">
+          <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
+          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
+        </div>
+
+        <div class="admin-layout">
+          <section class="application-list" aria-label="Room list">
+            <div class="application-list-header">
+              <span>Room</span>
+              <span>Type / Floor</span>
+              <span>Status</span>
+            </div>
+            <div id="room-list"></div>
+          </section>
+
+          <aside class="application-detail" id="room-detail" aria-live="polite">
+            <p class="section-kicker">Room Details</p>
+            <p class="empty-detail">Select a room to view and update details.</p>
+          </aside>
+        </div>
+
+        <div class="admin-pagination" id="admin-pagination" aria-live="polite"></div>
+      </section>
+    </main>
+  </body>
+</html>
