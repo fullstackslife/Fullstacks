@@ -132,38 +132,6 @@
       </div>
     </div>
 
-    <script>
-      document.getElementById("login-form").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const btn = document.getElementById("login-btn");
-        const error = document.getElementById("login-error");
-        const email = document.getElementById("email").value.trim();
-        const password = document.getElementById("password").value;
-
-        error.textContent = "";
-        btn.disabled = true;
-        btn.textContent = "Signing in…";
-
-        try {
-          const res = await fetch("/api/consultant/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password })
-          });
-          const data = await res.json();
-          if (data.ok) {
-            window.location.href = "/consultant/dashboard";
-          } else {
-            error.textContent = data.error || "Login failed.";
-            btn.disabled = false;
-            btn.textContent = "Sign In";
-          }
-        } catch {
-          error.textContent = "Network error. Please try again.";
-          btn.disabled = false;
-          btn.textContent = "Sign In";
-        }
-      });
-    </script>
+    <script src="/assets/consultant-login.js" defer></script>
   </body>
 </html>
