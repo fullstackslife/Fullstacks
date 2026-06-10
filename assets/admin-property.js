@@ -29,14 +29,23 @@
   }
 
   async function apiFetch(url) {
-    const response = await fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${adminToken}`
-      }
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminToken}`
+        }
+      });
+    } catch (networkError) {
+      throw new Error("Network error — could not reach the server. Check your connection and try again.");
+    }
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Request failed.");
+    if (!response.ok) {
+      const error = new Error(payload.error || `Request failed (HTTP ${response.status}).`);
+      error.status = response.status;
+      throw error;
+    }
     return payload;
   }
 
@@ -131,19 +140,34 @@
 
   async function loadSummary() {
     setStatus(loadStatus, "Loading...", "");
+    let data;
     try {
-      const data = await apiFetch("/api/admin/property/summary");
-      renderOverview(data);
-      showDashboard();
-      setStatus(loadStatus, "", "");
+      data = await apiFetch("/api/admin/property/summary");
     } catch (error) {
-      setStatus(loadStatus, error.message, "error");
-      if (/unauthorized|admin access is not configured/i.test(error.message)) {
+      let message = error.message;
+      if (error.status === 401) {
+        message = "Unauthorized — your admin token was rejected. Enter it again.";
+      } else if (error.status === 503) {
+        message = `${error.message} (HTTP 503 — server-side configuration issue.)`;
+      } else if (error.status >= 500) {
+        message = `${error.message} (HTTP ${error.status} — server error. Check the deploy logs.)`;
+      }
+      setStatus(loadStatus, message, "error");
+      if (error.status === 401 || error.status === 503) {
         localStorage.removeItem(storageKey);
         showAccess();
-        setStatus(tokenStatus, error.message, "error");
+        setStatus(tokenStatus, message, "error");
       }
+      return;
     }
+    try {
+      renderOverview(data);
+    } catch (error) {
+      setStatus(loadStatus, `Display error: ${error.message}. Hard-refresh this page (the script may be cached).`, "error");
+      return;
+    }
+    showDashboard();
+    setStatus(loadStatus, "", "");
   }
 
   tokenForm.addEventListener("submit", async (event) => {

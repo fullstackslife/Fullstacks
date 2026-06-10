@@ -6,8 +6,8 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>Room Status | FullStacks.ink</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css" />
-    <script src="/assets/admin-property-rooms.js?v=admin-nav-20260609" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=admin-20260610" />
+    <script src="/assets/admin-property-rooms.js?v=admin-20260610" defer></script>
   </head>
   <body class="admin-page">
     <header class="site-header" id="admin-site-header" hidden>
@@ -25,7 +25,7 @@
           <a href="/admin/consultants">Consultants</a>
           <a href="/admin/properties">Properties</a>
           <a href="/admin/property">Property</a>
-          <a href="/admin/property/rooms">Rooms</a>
+          <a href="/admin/property/rooms" aria-current="page">Rooms</a>
           <a href="/">Public Site</a>
         </div>
       </nav>
@@ -59,6 +59,11 @@
 
       <section class="admin-dashboard" id="admin-dashboard" hidden>
         <div class="admin-counts" id="admin-counts" aria-label="Room status summary"></div>
+
+        <div class="admin-toolbar" id="room-toolbar">
+          <button class="button secondary" id="toggle-filters-btn" type="button" aria-expanded="false" aria-controls="room-filters">Filters</button>
+          <button class="button primary" id="walk-mode-btn" type="button">Walk Mode</button>
+        </div>
 
         <form class="admin-filters" id="room-filters">
           <label>
@@ -123,7 +128,11 @@
           </aside>
         </div>
 
+        <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+
         <div class="admin-pagination" id="admin-pagination" aria-live="polite"></div>
+
+        <section class="walk-mode" id="walk-mode" aria-label="Walk mode" hidden></section>
       </section>
     </main>
   </body>

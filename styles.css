@@ -1500,3 +1500,243 @@ h3 {
   color: var(--muted);
   font-style: italic;
 }
+
+/* ============================================================
+   Admin Nav + Mobile Room Walk — added 2026-06-10
+   (admin-page only; no public-site selectors below)
+   ============================================================ */
+
+.nav-links a[aria-current="page"] {
+  border-color: var(--accent);
+  background: rgba(215, 166, 75, 0.1);
+  color: var(--accent-bright);
+}
+
+.admin-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+#toggle-filters-btn {
+  display: none;
+}
+
+.sheet-backdrop {
+  display: none;
+}
+
+.sheet-close {
+  display: none;
+}
+
+/* ── Walk Mode ── */
+
+.admin-dashboard.walk-active .admin-counts,
+.admin-dashboard.walk-active .admin-toolbar,
+.admin-dashboard.walk-active .admin-filters,
+.admin-dashboard.walk-active .admin-summary,
+.admin-dashboard.walk-active .admin-layout,
+.admin-dashboard.walk-active .admin-pagination {
+  display: none;
+}
+
+.walk-mode {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: 6px 18px 40px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  box-shadow: var(--shadow);
+}
+
+.walk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.walk-progress {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.walk-room-number {
+  margin: 20px 0 2px;
+  color: var(--accent-bright);
+  font-size: clamp(3.2rem, 14vw, 4.6rem);
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+}
+
+.walk-room-meta {
+  margin: 0 0 20px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.walk-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.walk-status-grid .walk-status-btn:first-child {
+  grid-column: 1 / -1;
+}
+
+.walk-status-btn {
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(8, 10, 12, 0.68);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.walk-status-btn:focus-visible {
+  outline: 3px solid rgba(215, 166, 75, 0.16);
+}
+
+.walk-status-btn.active {
+  border-color: var(--accent);
+  background: rgba(215, 166, 75, 0.16);
+  color: var(--accent-bright);
+}
+
+.walk-fields {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.walk-fields label {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.walk-fields select,
+.walk-fields input,
+.walk-fields textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: rgba(8, 10, 12, 0.68);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 11px;
+  resize: vertical;
+}
+
+.walk-fields select:focus,
+.walk-fields input:focus,
+.walk-fields textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid rgba(215, 166, 75, 0.16);
+}
+
+.walk-mode .form-status {
+  min-height: 1.4em;
+  margin: 0 0 12px;
+}
+
+.walk-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.walk-actions .button {
+  flex: 1;
+  min-height: 54px;
+}
+
+/* ── Phone layout: collapsible filters + bottom-sheet detail ── */
+
+@media (max-width: 680px) {
+  #toggle-filters-btn {
+    display: inline-flex;
+  }
+
+  .admin-toolbar .button {
+    flex: 1;
+    min-height: 52px;
+  }
+
+  .admin-page .admin-filters {
+    display: none;
+  }
+
+  .admin-page .admin-filters.filters-open {
+    display: grid;
+  }
+
+  .application-row {
+    min-height: 64px;
+    padding: 14px 16px;
+  }
+
+  .sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.55);
+  }
+
+  .sheet-backdrop[hidden] {
+    display: none;
+  }
+
+  .admin-page .application-detail {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    max-height: 80vh;
+    overflow-y: auto;
+    margin: 0;
+    border-radius: 14px 14px 0 0;
+    border-bottom: 0;
+    transform: translateY(105%);
+    transition: transform 0.22s ease;
+    visibility: hidden;
+  }
+
+  .admin-page .application-detail.sheet-open {
+    transform: translateY(0);
+    visibility: visible;
+  }
+
+  .sheet-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: sticky;
+    top: 0;
+    margin-left: auto;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    background: var(--panel-strong);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 1.4rem;
+    line-height: 1;
+    z-index: 1;
+  }
+}
