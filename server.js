@@ -3236,6 +3236,10 @@ async function requireConsultantSession(req, res) {
 
 // ── Consultant auth handlers ───────────────────────────────────────────────
 
+// Pre-computed bcrypt hash used as a timing-safe dummy when no real hash exists.
+// Prevents short-circuit timing attacks on non-existent/unactivated accounts.
+const DUMMY_BCRYPT_HASH = "$2b$12$GhvMmNVjRW29ulnudl.LbuAnUtN/LRfe1JsBm1Vd3rB.d6G9N9ZoS";
+
 async function handleConsultantLogin(req, res) {
   if (!pool || !databaseReady) {
     sendJson(res, 503, { ok: false, error: "Database unavailable." });
@@ -3250,57 +3254,57 @@ async function handleConsultantLogin(req, res) {
     return;
   }
 
-  const email = cleanString(body.email).toLowerCase();
-  const password = typeof body.password === "string" ? body.password : "";
+  try {
+    const email = cleanString(body.email).toLowerCase();
+    const password = typeof body.password === "string" ? body.password : "";
 
-  if (!email || !password) {
-    sendJson(res, 400, { ok: false, error: "Email and password are required." });
-    return;
-  }
-
-  const result = await pool.query(
-    "SELECT id, first_name, last_name, email, password_hash, status FROM consultant_applications WHERE lower(email) = $1 LIMIT 1",
-    [email]
-  );
-  const consultant = result.rows[0];
-
-  // Always run bcrypt compare to prevent timing attacks, even if no user found
-  const hashToCheck = consultant?.password_hash || "$2b$12$invalidhashpadding000000000000000000000000000000000000000";
-  const match = await bcrypt.compare(password, hashToCheck);
-
-  if (!consultant || !match) {
-    sendJson(res, 401, { ok: false, error: "Invalid email or password." });
-    return;
-  }
-
-  if (!consultant.password_hash) {
-    sendJson(res, 401, { ok: false, error: "Account not yet activated. Contact your administrator." });
-    return;
-  }
-
-  const sid = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-
-  await pool.query(
-    "INSERT INTO consultant_sessions (sid, consultant_id, expires_at) VALUES ($1, $2, $3)",
-    [sid, consultant.id, expiresAt]
-  );
-  await pool.query(
-    "UPDATE consultant_applications SET last_login_at = NOW() WHERE id = $1",
-    [consultant.id]
-  );
-
-  setSessionCookie(res, sid);
-  sendJson(res, 200, {
-    ok: true,
-    consultant: {
-      id: consultant.id,
-      firstName: consultant.first_name,
-      lastName: consultant.last_name,
-      email: consultant.email,
-      status: consultant.status
+    if (!email || !password) {
+      sendJson(res, 400, { ok: false, error: "Email and password are required." });
+      return;
     }
-  });
+
+    const result = await pool.query(
+      "SELECT id, first_name, last_name, email, password_hash, status FROM consultant_applications WHERE lower(email) = $1 LIMIT 1",
+      [email]
+    );
+    const consultant = result.rows[0];
+
+    // Always run bcrypt compare to prevent timing attacks
+    const hashToCheck = consultant?.password_hash || DUMMY_BCRYPT_HASH;
+    const match = await bcrypt.compare(password, hashToCheck);
+
+    if (!consultant || !consultant.password_hash || !match) {
+      sendJson(res, 401, { ok: false, error: "Invalid email or password." });
+      return;
+    }
+
+    const sid = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+    await pool.query(
+      "INSERT INTO consultant_sessions (sid, consultant_id, expires_at) VALUES ($1, $2, $3)",
+      [sid, consultant.id, expiresAt]
+    );
+    await pool.query(
+      "UPDATE consultant_applications SET last_login_at = NOW() WHERE id = $1",
+      [consultant.id]
+    );
+
+    setSessionCookie(res, sid);
+    sendJson(res, 200, {
+      ok: true,
+      consultant: {
+        id: consultant.id,
+        firstName: consultant.first_name,
+        lastName: consultant.last_name,
+        email: consultant.email,
+        status: consultant.status
+      }
+    });
+  } catch (err) {
+    console.error("Consultant login error:", err && err.message ? err.message : err);
+    sendJson(res, 500, { ok: false, error: "Login failed. Please try again." });
+  }
 }
 
 async function handleConsultantLogout(req, res) {
