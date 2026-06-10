@@ -16,6 +16,7 @@
   const checklistStatuses = ["OK", "Needs Repair", "Complete", "N/A"];
   const checklistCache = new Map(); // roomId -> [{id, group, label, status, notes}]
   const checklistDirty = new Map(); // roomId -> Set(itemId) staged but not yet saved
+  let checklistSummaries = { totalItems: 0, rooms: {} }; // batch per-room counts for list rows
 
   const mobileQuery = window.matchMedia("(max-width: 680px)");
 
@@ -165,11 +166,17 @@
         const selected = r.id === selectedRoomId ? " selected" : "";
         const floorLabel = r.floor ? `Floor ${r.floor}` : "";
         const typeFloor = [r.roomType, floorLabel].filter(Boolean).join("  /  ");
+        const cs = checklistSummaries.rooms[r.id];
+        const checklistLine =
+          cs && cs.answered > 0 && checklistSummaries.totalItems > 0
+            ? `<small class="row-checklist${cs.needsRepair > 0 ? " has-repairs" : ""}">Checklist ${cs.answered}/${checklistSummaries.totalItems}${cs.needsRepair > 0 ? ` · ${cs.needsRepair} repair${cs.needsRepair === 1 ? "" : "s"}` : ""}</small>`
+            : "";
         return `
           <button class="application-row${selected}" type="button" data-id="${r.id}">
             <span>
               <strong>Room ${escapeHtml(r.roomNumber)}</strong>
               ${r.oosReason ? `<small>${escapeHtml(r.oosReason.slice(0, 80))}${r.oosReason.length > 80 ? "..." : ""}</small>` : ""}
+              ${checklistLine}
             </span>
             <span>${escapeHtml(typeFloor)}</span>
             <span class="status-pill">${escapeHtml(r.status)}</span>
@@ -285,6 +292,7 @@
       renderList();
       renderPagination();
       setStatus(loadStatus, `${pageTotal} room${pageTotal === 1 ? "" : "s"} loaded.`, "success");
+      loadChecklistSummaries();
     } catch (error) {
       if (!append) rooms = [];
       renderCounts();
@@ -302,6 +310,18 @@
         showAccess();
         setStatus(tokenStatus, message, "error");
       }
+    }
+  }
+
+  // One batch request decorates the room list with checklist counts.
+  // Purely cosmetic — failures leave the rows without chips, nothing breaks.
+  async function loadChecklistSummaries() {
+    try {
+      const payload = await apiFetch("/api/admin/property/rooms/checklist-summaries");
+      checklistSummaries = { totalItems: payload.totalItems || 0, rooms: payload.rooms || {} };
+      if (!walkActive) renderList();
+    } catch (error) {
+      // non-critical decoration; skip
     }
   }
 
@@ -439,10 +459,18 @@
       </div>
       <div class="walk-actions">
         <p class="form-status" id="detail-save-status" role="status" aria-live="polite"></p>
-        <div class="walk-actions-buttons">
+        <div class="walk-actions-buttons" id="walk-actions-main">
           <button class="button secondary" id="walk-prev" type="button"${walkIndex === 0 ? " disabled" : ""}>Prev</button>
-          <button class="button secondary" id="walk-skip" type="button">Skip</button>
+          <button class="button secondary" id="walk-next" type="button">Next</button>
           <button class="button primary" id="walk-save-next" type="button">Save &amp; Next</button>
+        </div>
+        <div class="walk-confirm" id="walk-confirm" hidden>
+          <p class="walk-confirm-text">Save changes before moving on?</p>
+          <div class="walk-actions-buttons">
+            <button class="button primary" id="walk-confirm-save" type="button">Save &amp; Next</button>
+            <button class="button secondary" id="walk-confirm-discard" type="button">Discard</button>
+            <button class="button secondary" id="walk-confirm-cancel" type="button">Cancel</button>
+          </div>
         </div>
       </div>`;
     loadWalkChecklist(room.id);
@@ -617,6 +645,7 @@
       });
       for (const sent of responses) dirty.delete(sent.itemId);
       if (dirty.size === 0) checklistDirty.delete(roomId);
+      refreshChecklistSummary(roomId);
       return true;
     } catch (error) {
       setStatus(walkSection.querySelector("#detail-save-status"), `Checklist: ${error.message}`, "error");
@@ -627,6 +656,49 @@
   async function saveWalkRoom(roomId) {
     const results = await Promise.all([saveRoomDetails(roomId), saveWalkChecklist(roomId)]);
     return results.every(Boolean);
+  }
+
+  // Unsaved-change detection for the Next guard: staged checklist taps, or
+  // any walk form field that differs from the room's server record.
+  function walkHasUnsavedChanges(room) {
+    const dirty = checklistDirty.get(room.id);
+    if (dirty && dirty.size > 0) return true;
+    const fields = [
+      ["#room-notes", room.notes],
+      ["#room-oos-reason", room.oosReason],
+      ["#room-return-date", room.returnDate ? String(room.returnDate).slice(0, 10) : ""],
+      ["#room-priority-select", room.priority || "Medium"]
+    ];
+    for (const [selector, original] of fields) {
+      const el = walkSection.querySelector(selector);
+      if (!el) continue;
+      if (el.value.trim() !== String(original || "").trim()) return true;
+    }
+    return false;
+  }
+
+  function showWalkConfirm(show) {
+    const main = walkSection.querySelector("#walk-actions-main");
+    const confirmEl = walkSection.querySelector("#walk-confirm");
+    if (main) main.hidden = show;
+    if (confirmEl) confirmEl.hidden = !show;
+  }
+
+  function discardWalkChanges(roomId) {
+    // Evict the cached checklist too: cached items hold the staged values,
+    // so the next visit refetches clean server state.
+    checklistDirty.delete(roomId);
+    checklistCache.delete(roomId);
+  }
+
+  function refreshChecklistSummary(roomId) {
+    const items = checklistCache.get(roomId);
+    if (!items || items.length === 0) return;
+    checklistSummaries.rooms[roomId] = {
+      answered: items.filter((it) => it.status).length,
+      needsRepair: items.filter((it) => it.status === "Needs Repair").length
+    };
+    if (!checklistSummaries.totalItems) checklistSummaries.totalItems = items.length;
   }
 
   // Apply URL filter params on load (supports ?status=OOO links from overview page)
@@ -748,17 +820,30 @@
           walkIndex = Math.min(walkIndex - 1, rooms.length - 1);
           renderWalk();
         }
-      } else if (id === "walk-skip") {
+      } else if (id === "walk-next" && room) {
+        if (walkHasUnsavedChanges(room)) {
+          showWalkConfirm(true);
+        } else {
+          walkIndex += 1;
+          renderWalk();
+        }
+      } else if (id === "walk-confirm-cancel") {
+        showWalkConfirm(false);
+      } else if (id === "walk-confirm-discard" && room) {
+        discardWalkChanges(room.id);
         walkIndex += 1;
         renderWalk();
-      } else if (id === "walk-save-next" && room) {
-        const saveBtn = walkSection.querySelector("#walk-save-next");
+      } else if ((id === "walk-save-next" || id === "walk-confirm-save") && room) {
+        const saveBtn = walkSection.querySelector(`#${id}`);
         if (saveBtn) saveBtn.disabled = true;
         const saved = await saveWalkRoom(room.id);
         if (saveBtn) saveBtn.disabled = false;
         if (saved) {
           walkIndex += 1;
           renderWalk();
+        } else {
+          // Show the error in the normal action bar rather than the confirm strip.
+          showWalkConfirm(false);
         }
       }
     });

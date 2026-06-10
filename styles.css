@@ -1848,6 +1848,30 @@ h3 {
   flex: 1.6;
 }
 
+.walk-confirm {
+  display: grid;
+  gap: 8px;
+}
+
+.walk-confirm-text {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 850;
+  color: var(--accent-bright);
+}
+
+.row-checklist {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.row-checklist.has-repairs {
+  color: var(--danger);
+}
+
 @media (min-width: 700px) {
   .walk-mode {
     width: min(100%, 620px);

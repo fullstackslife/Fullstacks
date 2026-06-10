@@ -2571,6 +2571,47 @@ async function handleGetRoomChecklist(req, res, roomId) {
   }
 }
 
+async function handleChecklistSummaries(req, res) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const [totalResult, perRoomResult] = await Promise.all([
+      pool.query("SELECT COUNT(*) AS total FROM room_checklist_items WHERE active = TRUE"),
+      pool.query(
+        `SELECT
+           r.room_id,
+           COUNT(*) AS answered,
+           COUNT(*) FILTER (WHERE r.status = 'Needs Repair') AS needs_repair
+         FROM room_checklist_responses r
+         JOIN room_checklist_items i ON i.id = r.item_id AND i.active = TRUE
+         GROUP BY r.room_id`
+      )
+    ]);
+
+    const rooms = {};
+    for (const row of perRoomResult.rows) {
+      rooms[row.room_id] = {
+        answered: parseInt(row.answered, 10),
+        needsRepair: parseInt(row.needs_repair, 10)
+      };
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      totalItems: parseInt(totalResult.rows[0].total, 10),
+      rooms
+    });
+  } catch (error) {
+    console.error("Checklist summaries error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load checklist summaries." });
+  }
+}
+
 async function handleSaveRoomChecklist(req, res, roomId) {
   if (!requireAdmin(req, res)) return;
 
@@ -4016,6 +4057,11 @@ const server = http.createServer((req, res) => {
   const roomUpdateMatch = parsedUrl.pathname.match(/^\/api\/admin\/property\/rooms\/(\d+)$/);
   if (req.method === "PATCH" && roomUpdateMatch) {
     handleUpdateRoom(req, res, roomUpdateMatch[1]);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/property/rooms/checklist-summaries") {
+    handleChecklistSummaries(req, res);
     return;
   }
 
