@@ -1121,6 +1121,36 @@ async function initializeDatabase() {
     )
   );
 
+  migrations.push(
+    await runMigration(
+      "add client auth columns",
+      `
+      ALTER TABLE inquiries
+        ADD COLUMN IF NOT EXISTS password_hash TEXT,
+        ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ
+      `
+    ),
+    await runMigration(
+      "create client sessions table",
+      `
+      CREATE TABLE IF NOT EXISTS client_sessions (
+        sid TEXT PRIMARY KEY,
+        inquiry_id INTEGER NOT NULL REFERENCES inquiries(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL
+      )
+      `
+    ),
+    await runMigration(
+      "index client sessions by expires_at",
+      `CREATE INDEX IF NOT EXISTS idx_client_sessions_expires_at ON client_sessions(expires_at)`
+    ),
+    await runMigration(
+      "index inquiries by lower(email)",
+      `CREATE INDEX IF NOT EXISTS idx_inquiries_lower_email ON inquiries (lower(email))`
+    )
+  );
+
   databaseReady = migrations.every(Boolean);
 
   if (!databaseReady) {
@@ -3187,11 +3217,11 @@ function serveStatic(req, res) {
 const SESSION_COOKIE = "cs_sid";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function getSessionId(req) {
+function getSessionId(req, cookieName = SESSION_COOKIE) {
   const cookieHeader = req.headers.cookie || "";
   for (const part of cookieHeader.split(";")) {
     const [k, ...rest] = part.trim().split("=");
-    if (k.trim() === SESSION_COOKIE) return decodeURIComponent(rest.join("=").trim());
+    if (k.trim() === cookieName) return decodeURIComponent(rest.join("=").trim());
   }
   return null;
 }
@@ -3210,18 +3240,18 @@ async function getConsultantSession(req) {
   return result.rows[0] || null;
 }
 
-function setSessionCookie(res, sid) {
+function setSessionCookie(res, sid, cookieName = SESSION_COOKIE) {
   const expires = new Date(Date.now() + SESSION_TTL_MS).toUTCString();
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Expires=${expires}`
+    `${cookieName}=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Expires=${expires}`
   );
 }
 
-function clearSessionCookie(res) {
+function clearSessionCookie(res, cookieName = SESSION_COOKIE) {
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT`
+    `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT`
   );
 }
 
@@ -3417,6 +3447,267 @@ async function handleAdminSetConsultantPassword(req, res, consultantId) {
   sendJson(res, 200, { ok: true });
 }
 
+// ── Client session helpers ─────────────────────────────────────────────────
+
+const CLIENT_SESSION_COOKIE = "cl_sid";
+
+async function getClientSession(req) {
+  if (!pool) return null;
+  const sid = getSessionId(req, CLIENT_SESSION_COOKIE);
+  if (!sid) return null;
+  const result = await pool.query(
+    `SELECT cs.inquiry_id, i.name, i.email, i.status, i.property_name
+     FROM client_sessions cs
+     JOIN inquiries i ON i.id = cs.inquiry_id
+     WHERE cs.sid = $1 AND cs.expires_at > NOW()`,
+    [sid]
+  );
+  return result.rows[0] || null;
+}
+
+async function requireClientSession(req, res) {
+  const session = await getClientSession(req);
+  if (!session) {
+    sendJson(res, 401, { ok: false, error: "Not authenticated." });
+    return null;
+  }
+  return session;
+}
+
+// ── Client auth handlers ───────────────────────────────────────────────────
+
+async function handleClientLogin(req, res) {
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database unavailable." });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { ok: false, error: "Invalid request." });
+    return;
+  }
+
+  try {
+    const email = cleanString(body.email).toLowerCase();
+    const password = typeof body.password === "string" ? body.password : "";
+
+    if (!email || !password) {
+      sendJson(res, 400, { ok: false, error: "Email and password are required." });
+      return;
+    }
+
+    // Emails are not unique on inquiries; prefer the row the admin set a
+    // password on (newest such row when several share the email).
+    const result = await pool.query(
+      `SELECT id, name, email, password_hash, status FROM inquiries
+       WHERE lower(email) = $1
+       ORDER BY (password_hash IS NOT NULL) DESC, created_at DESC
+       LIMIT 1`,
+      [email]
+    );
+    const client = result.rows[0];
+
+    // Always run bcrypt compare to prevent timing attacks
+    const hashToCheck = client?.password_hash || DUMMY_BCRYPT_HASH;
+    const match = await bcrypt.compare(password, hashToCheck);
+
+    if (!client || !client.password_hash || !match) {
+      sendJson(res, 401, { ok: false, error: "Invalid email or password." });
+      return;
+    }
+
+    const sid = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+    await pool.query(
+      "INSERT INTO client_sessions (sid, inquiry_id, expires_at) VALUES ($1, $2, $3)",
+      [sid, client.id, expiresAt]
+    );
+    await pool.query(
+      "UPDATE inquiries SET last_login_at = NOW() WHERE id = $1",
+      [client.id]
+    );
+
+    setSessionCookie(res, sid, CLIENT_SESSION_COOKIE);
+    sendJson(res, 200, {
+      ok: true,
+      client: {
+        id: client.id,
+        name: client.name,
+        email: client.email,
+        status: client.status
+      }
+    });
+  } catch (err) {
+    console.error("Client login error:", err && err.message ? err.message : err);
+    sendJson(res, 500, { ok: false, error: "Login failed. Please try again." });
+  }
+}
+
+async function handleClientLogout(req, res) {
+  const sid = getSessionId(req, CLIENT_SESSION_COOKIE);
+  if (sid && pool) {
+    await pool.query("DELETE FROM client_sessions WHERE sid = $1", [sid]).catch(() => {});
+  }
+  clearSessionCookie(res, CLIENT_SESSION_COOKIE);
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleClientMe(req, res) {
+  const session = await requireClientSession(req, res);
+  if (!session) return;
+  sendJson(res, 200, {
+    ok: true,
+    client: {
+      id: session.inquiry_id,
+      name: session.name,
+      email: session.email,
+      status: session.status
+    }
+  });
+}
+
+async function handleClientDashboard(req, res) {
+  const session = await requireClientSession(req, res);
+  if (!session) return;
+
+  try {
+    const email = String(session.email || "").toLowerCase();
+
+    // Only client-safe fields; never internal_notes, password_hash, ip, user_agent.
+    const inquiryResult = await pool.query(
+      `SELECT id, created_at, updated_at, name, email, phone, company,
+              property_name, property_location, brand_flag, room_count,
+              property_relationship, current_challenge, urgency, message, status
+       FROM inquiries WHERE id = $1`,
+      [session.inquiry_id]
+    );
+    const inq = inquiryResult.rows[0];
+
+    // Properties linked to this inquiry, plus any tied to the same email so a
+    // client with multiple inquiries sees everything.
+    const propsResult = await pool.query(
+      `SELECT DISTINCT ON (p.id)
+              p.id, p.name, p.location, p.brand_flag, p.total_rooms,
+              p.lifecycle_status, p.created_at, p.updated_at
+       FROM properties p
+       LEFT JOIN inquiries src ON src.id = p.source_inquiry_id
+       WHERE p.source_inquiry_id = $1
+          OR lower(src.email) = $2
+          OR lower(p.primary_contact_email) = $2
+       ORDER BY p.id, p.created_at DESC`,
+      [session.inquiry_id, email]
+    );
+
+    const propertyIds = propsResult.rows.map((p) => p.id);
+    const consultantsByProperty = {};
+    if (propertyIds.length) {
+      // Only confirmed assignments; never expose pipeline candidates or
+      // consultant contact/compensation/notes.
+      const consultantsResult = await pool.query(
+        `SELECT pca.property_id, pca.role, pca.status AS assignment_status,
+                ca.first_name, ca.last_name
+         FROM property_consultant_assignments pca
+         JOIN consultant_applications ca ON ca.id = pca.consultant_application_id
+         WHERE pca.property_id = ANY($1::int[])
+           AND pca.status IN ('Assigned', 'Active', 'Completed')
+         ORDER BY pca.updated_at DESC`,
+        [propertyIds]
+      );
+      for (const row of consultantsResult.rows) {
+        if (!consultantsByProperty[row.property_id]) consultantsByProperty[row.property_id] = [];
+        consultantsByProperty[row.property_id].push({
+          firstName: row.first_name,
+          lastName: row.last_name,
+          role: row.role,
+          status: row.assignment_status
+        });
+      }
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      inquiry: inq
+        ? {
+            id: inq.id,
+            createdAt: inq.created_at,
+            updatedAt: inq.updated_at,
+            name: inq.name,
+            email: inq.email,
+            phone: inq.phone,
+            company: inq.company,
+            propertyName: inq.property_name,
+            propertyLocation: inq.property_location,
+            brandFlag: inq.brand_flag,
+            roomCount: inq.room_count,
+            propertyRelationship: inq.property_relationship,
+            currentChallenge: inq.current_challenge,
+            urgency: inq.urgency,
+            message: inq.message,
+            status: inq.status
+          }
+        : null,
+      properties: propsResult.rows.map((p) => ({
+        id: p.id,
+        name: p.name,
+        location: p.location,
+        brandFlag: p.brand_flag,
+        totalRooms: p.total_rooms,
+        lifecycleStatus: p.lifecycle_status,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        consultants: consultantsByProperty[p.id] || []
+      }))
+    });
+  } catch (err) {
+    console.error("Client dashboard error:", err && err.message ? err.message : err);
+    sendJson(res, 500, { ok: false, error: "Could not load dashboard." });
+  }
+}
+
+// ── Admin: set client password ──────────────────────────────────────────────
+
+async function handleAdminSetClientPassword(req, res, inquiryId) {
+  if (!requireAdmin(req, res)) return;
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database unavailable." });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { ok: false, error: "Invalid request." });
+    return;
+  }
+
+  const password = typeof body.password === "string" ? body.password.trim() : "";
+  if (password.length < 8) {
+    sendJson(res, 400, { ok: false, error: "Password must be at least 8 characters." });
+    return;
+  }
+
+  const hash = await bcrypt.hash(password, 12);
+  const result = await pool.query(
+    "UPDATE inquiries SET password_hash = $1 WHERE id = $2 RETURNING id",
+    [hash, inquiryId]
+  );
+
+  if (result.rowCount === 0) {
+    sendJson(res, 404, { ok: false, error: "Inquiry not found." });
+    return;
+  }
+
+  // Invalidate existing sessions when password changes
+  await pool.query("DELETE FROM client_sessions WHERE inquiry_id = $1", [inquiryId]);
+
+  sendJson(res, 200, { ok: true });
+}
+
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url || "/", `http://${HOST}`);
 
@@ -3584,6 +3875,33 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ── Client auth routes ───────────────────────────────────────────────────
+  if (req.method === "POST" && parsedUrl.pathname === "/api/client/login") {
+    handleClientLogin(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && parsedUrl.pathname === "/api/client/logout") {
+    handleClientLogout(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/client/me") {
+    handleClientMe(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/client/dashboard") {
+    handleClientDashboard(req, res);
+    return;
+  }
+
+  const clientSetPasswordMatch = parsedUrl.pathname.match(/^\/api\/admin\/inquiries\/(\d+)\/password$/);
+  if (req.method === "POST" && clientSetPasswordMatch) {
+    handleAdminSetClientPassword(req, res, clientSetPasswordMatch[1]);
+    return;
+  }
+
   if (parsedUrl.pathname.startsWith("/api/")) {
     sendJson(res, 404, { ok: false, error: "Not found." });
     return;
@@ -3623,6 +3941,18 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && parsedUrl.pathname === "/consultant/dashboard") {
     req.url = "/consultant/dashboard.html";
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/client") {
+    req.url = "/client/dashboard.html";
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/client/login") {
+    req.url = "/client/login.html";
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/client/dashboard") {
+    req.url = "/client/dashboard.html";
   }
 
   serveStatic(req, res);

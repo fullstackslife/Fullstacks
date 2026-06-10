@@ -300,6 +300,17 @@
           <button class="button primary" id="create-property-btn" type="button">Create Property Profile</button>
         </div>
       </div>
+      <h3 class="detail-section-heading">Portal Access</h3>
+      <div class="detail-notes">
+        <div class="assignment-create">
+          <label for="client-password"><span>Set Portal Password</span></label>
+          <input id="client-password" type="password" maxlength="128" placeholder="Min 8 characters" autocomplete="new-password" />
+          <div class="detail-notes-footer">
+            <p class="form-status" id="client-password-set-status" role="status" aria-live="polite"></p>
+            <button class="button secondary" id="set-client-password-btn" type="button">Set Password</button>
+          </div>
+        </div>
+      </div>
       <div class="detail-notes">
         <label for="inquiry-notes">
           <span>Internal Notes</span>
@@ -473,7 +484,7 @@
     updateStatus(selectedInquiryId, event.target.value);
   });
 
-  detail.addEventListener("click", (event) => {
+  detail.addEventListener("click", async (event) => {
     if (!selectedInquiryId) {
       return;
     }
@@ -486,6 +497,30 @@
 
     if (event.target.id === "create-property-btn") {
       createPropertyFromInquiry(selectedInquiryId);
+    }
+
+    if (event.target.id === "set-client-password-btn") {
+      const input = document.querySelector("#client-password");
+      const status = document.querySelector("#client-password-set-status");
+      const password = input ? input.value.trim() : "";
+      if (!password || password.length < 8) {
+        setStatus(status, "Password must be at least 8 characters.", "error");
+        return;
+      }
+      event.target.disabled = true;
+      setStatus(status, "Saving...", "");
+      try {
+        await apiFetch(`/api/admin/inquiries/${selectedInquiryId}/password`, {
+          method: "POST",
+          body: JSON.stringify({ password })
+        });
+        if (input) input.value = "";
+        setStatus(status, "Password set successfully.", "success");
+      } catch (err) {
+        setStatus(status, err.message, "error");
+      } finally {
+        event.target.disabled = false;
+      }
     }
   });
 
