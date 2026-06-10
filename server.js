@@ -1151,6 +1151,83 @@ async function initializeDatabase() {
     )
   );
 
+  migrations.push(
+    await runMigration(
+      "create room checklist items table",
+      `
+      CREATE TABLE IF NOT EXISTS room_checklist_items (
+        id         SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        group_name TEXT NOT NULL,
+        label      TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        active     BOOLEAN NOT NULL DEFAULT TRUE,
+        UNIQUE (group_name, label)
+      )
+      `
+    ),
+    await runMigration(
+      "create room checklist responses table",
+      `
+      CREATE TABLE IF NOT EXISTS room_checklist_responses (
+        id         SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        room_id    INTEGER NOT NULL REFERENCES rooms(id),
+        item_id    INTEGER NOT NULL REFERENCES room_checklist_items(id),
+        status     TEXT NOT NULL,
+        notes      TEXT,
+        UNIQUE (room_id, item_id)
+      )
+      `
+    ),
+    await runMigration(
+      "index checklist responses by room_id",
+      `CREATE INDEX IF NOT EXISTS idx_room_checklist_responses_room_id ON room_checklist_responses(room_id)`
+    ),
+    await runMigration(
+      "index checklist responses by item_id",
+      `CREATE INDEX IF NOT EXISTS idx_room_checklist_responses_item_id ON room_checklist_responses(item_id)`
+    ),
+    await runMigration(
+      "index checklist responses by status",
+      `CREATE INDEX IF NOT EXISTS idx_room_checklist_responses_status ON room_checklist_responses(status)`
+    ),
+    await runMigration(
+      "seed guest room PM checklist items",
+      `
+      INSERT INTO room_checklist_items (group_name, label, sort_order)
+      VALUES
+        ('Entrance Door',            'Door, frame, hinges, and closer operate smoothly', 10),
+        ('Entrance Door',            'Locks, latch, and security devices function',      11),
+        ('Bedroom',                  'Furniture condition and stability',                20),
+        ('Bedroom',                  'Drawers, doors, and hardware operate',             21),
+        ('Draperies / Windows',      'Drapes and blackout panels intact and tracking',   30),
+        ('Draperies / Windows',      'Windows, locks, and seals intact',                 31),
+        ('Bathroom',                 'Exhaust fan operates and is clean',                40),
+        ('Bathroom',                 'Caulk and grout condition',                        41),
+        ('PTAC / HVAC',              'Unit heats and cools; filter cleaned or replaced', 50),
+        ('PTAC / HVAC',              'Thermostat responds correctly',                    51),
+        ('Electrical / Lighting',    'All lamps and fixtures work; correct bulbs',       60),
+        ('Electrical / Lighting',    'Outlets and switches secure and functional',       61),
+        ('Walls / Ceiling / Flooring','Walls and ceiling free of damage and stains',     70),
+        ('Walls / Ceiling / Flooring','Flooring condition; no trip hazards',             71),
+        ('TV / Remote / Cords',      'TV powers on; channels and inputs work',           80),
+        ('TV / Remote / Cords',      'Remote works; cords secured and undamaged',        81),
+        ('Bed Set',                  'Mattress, box spring, and frame condition',        90),
+        ('Bed Set',                  'Headboard secure; bedding presentable',            91),
+        ('Vanity / Mirror / Plumbing','Sink drains; faucet and stopper work; no leaks',  100),
+        ('Vanity / Mirror / Plumbing','Vanity top, mirror, and lighting condition',      101),
+        ('Commode / Seat / Lid',     'Flushes properly; no leaks or running',            110),
+        ('Commode / Seat / Lid',     'Seat and lid secure and undamaged',                111),
+        ('Tub / Shower / Drain',     'Tub and shower surfaces; grab bar secure',         120),
+        ('Tub / Shower / Drain',     'Showerhead, valve, and drain function',            121),
+        ('General Notes',            'Other observations',                               130)
+      ON CONFLICT (group_name, label) DO NOTHING
+      `
+    )
+  );
+
   databaseReady = migrations.every(Boolean);
 
   if (!databaseReady) {
@@ -2423,6 +2500,160 @@ async function handleUpdateRoom(req, res, roomId) {
   } catch (error) {
     console.error("Update room error:", error.message);
     sendJson(res, 500, { ok: false, error: "Unable to update room." });
+  }
+}
+
+const checklistStatuses = ["OK", "Needs Repair", "Complete", "N/A"];
+const checklistStatusOptions = new Set(checklistStatuses);
+
+function buildChecklistSummary(rows) {
+  const summary = { total: rows.length, answered: 0, ok: 0, needsRepair: 0, complete: 0, na: 0 };
+  for (const row of rows) {
+    if (!row.response_status) continue;
+    summary.answered += 1;
+    if (row.response_status === "OK") summary.ok += 1;
+    else if (row.response_status === "Needs Repair") summary.needsRepair += 1;
+    else if (row.response_status === "Complete") summary.complete += 1;
+    else if (row.response_status === "N/A") summary.na += 1;
+  }
+  return summary;
+}
+
+async function handleGetRoomChecklist(req, res, roomId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(roomId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid room ID." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const roomResult = await pool.query("SELECT id FROM rooms WHERE id = $1", [roomId]);
+    if (roomResult.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Room not found." });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT
+         i.id, i.group_name, i.label, i.sort_order,
+         r.status AS response_status, r.notes AS response_notes, r.updated_at AS response_updated_at
+       FROM room_checklist_items i
+       LEFT JOIN room_checklist_responses r
+         ON r.item_id = i.id AND r.room_id = $1
+       WHERE i.active = TRUE
+       ORDER BY i.sort_order ASC, i.id ASC`,
+      [roomId]
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      statuses: checklistStatuses,
+      items: result.rows.map((row) => ({
+        id: row.id,
+        group: row.group_name,
+        label: row.label,
+        sortOrder: row.sort_order,
+        response: row.response_status
+          ? { status: row.response_status, notes: row.response_notes, updatedAt: row.response_updated_at }
+          : null
+      })),
+      summary: buildChecklistSummary(result.rows)
+    });
+  } catch (error) {
+    console.error("Get room checklist error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load room checklist." });
+  }
+}
+
+async function handleSaveRoomChecklist(req, res, roomId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(roomId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid room ID." });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const responses = Array.isArray(payload.responses) ? payload.responses : null;
+  if (!responses || responses.length === 0) {
+    sendJson(res, 400, { ok: false, error: "responses must be a non-empty array." });
+    return;
+  }
+  if (responses.length > 200) {
+    sendJson(res, 400, { ok: false, error: "Too many responses in one request." });
+    return;
+  }
+
+  const cleaned = [];
+  for (const entry of responses) {
+    const itemId = parseInt(entry && entry.itemId, 10);
+    const status = cleanString(entry && entry.status);
+    const notes = cleanString(entry && entry.notes);
+    if (!Number.isFinite(itemId) || itemId <= 0) {
+      sendJson(res, 400, { ok: false, error: "Each response requires a valid itemId." });
+      return;
+    }
+    if (!checklistStatusOptions.has(status)) {
+      sendJson(res, 400, { ok: false, error: `Invalid checklist status. Valid values: ${checklistStatuses.join(", ")}.` });
+      return;
+    }
+    if (notes.length > 1000) {
+      sendJson(res, 400, { ok: false, error: "Checklist notes exceed maximum length of 1000 characters." });
+      return;
+    }
+    cleaned.push({ itemId, status, notes: notes || null });
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const roomResult = await pool.query("SELECT id FROM rooms WHERE id = $1", [roomId]);
+    if (roomResult.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Room not found." });
+      return;
+    }
+
+    // Single multi-row upsert: one round trip per save regardless of item count.
+    const params = [roomId];
+    const valueRows = cleaned.map((entry) => {
+      params.push(entry.itemId, entry.status, entry.notes);
+      const base = params.length;
+      return `($1, $${base - 2}::integer, $${base - 1}, $${base})`;
+    });
+
+    const result = await pool.query(
+      `INSERT INTO room_checklist_responses (room_id, item_id, status, notes)
+       VALUES ${valueRows.join(", ")}
+       ON CONFLICT (room_id, item_id)
+       DO UPDATE SET status = EXCLUDED.status, notes = EXCLUDED.notes, updated_at = NOW()
+       RETURNING item_id, status`,
+      params
+    );
+
+    sendJson(res, 200, { ok: true, saved: result.rowCount });
+  } catch (error) {
+    console.error("Save room checklist error:", error.message);
+    if (error.code === "23503") {
+      sendJson(res, 400, { ok: false, error: "One or more checklist items do not exist." });
+      return;
+    }
+    sendJson(res, 500, { ok: false, error: "Unable to save room checklist." });
   }
 }
 
@@ -3785,6 +4016,16 @@ const server = http.createServer((req, res) => {
   const roomUpdateMatch = parsedUrl.pathname.match(/^\/api\/admin\/property\/rooms\/(\d+)$/);
   if (req.method === "PATCH" && roomUpdateMatch) {
     handleUpdateRoom(req, res, roomUpdateMatch[1]);
+    return;
+  }
+
+  const roomChecklistMatch = parsedUrl.pathname.match(/^\/api\/admin\/property\/rooms\/(\d+)\/checklist$/);
+  if (req.method === "GET" && roomChecklistMatch) {
+    handleGetRoomChecklist(req, res, roomChecklistMatch[1]);
+    return;
+  }
+  if (req.method === "PATCH" && roomChecklistMatch) {
+    handleSaveRoomChecklist(req, res, roomChecklistMatch[1]);
     return;
   }
 
