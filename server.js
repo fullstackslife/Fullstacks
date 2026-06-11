@@ -833,7 +833,7 @@ async function initializeDatabase() {
         status      TEXT NOT NULL DEFAULT 'In Service',
         oos_reason  TEXT,
         return_date DATE,
-        priority    TEXT DEFAULT 'Medium',
+        priority    TEXT DEFAULT 'Normal',
         notes       TEXT,
         UNIQUE (property_id, room_number)
       )
@@ -852,7 +852,7 @@ async function initializeDatabase() {
         ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'In Service',
         ADD COLUMN IF NOT EXISTS oos_reason TEXT,
         ADD COLUMN IF NOT EXISTS return_date DATE,
-        ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Medium',
+        ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Normal',
         ADD COLUMN IF NOT EXISTS notes TEXT
       `
     ),
@@ -877,7 +877,7 @@ async function initializeDatabase() {
         title          TEXT NOT NULL,
         description    TEXT,
         category       TEXT,
-        priority       TEXT NOT NULL DEFAULT 'Medium',
+        priority       TEXT NOT NULL DEFAULT 'Normal',
         status         TEXT NOT NULL DEFAULT 'Open',
         scheduled_date DATE,
         resolved_date  DATE,
@@ -898,7 +898,7 @@ async function initializeDatabase() {
         ADD COLUMN IF NOT EXISTS title TEXT,
         ADD COLUMN IF NOT EXISTS description TEXT,
         ADD COLUMN IF NOT EXISTS category TEXT,
-        ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Medium',
+        ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Normal',
         ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Open',
         ADD COLUMN IF NOT EXISTS scheduled_date DATE,
         ADD COLUMN IF NOT EXISTS resolved_date DATE,
@@ -949,12 +949,10 @@ async function initializeDatabase() {
       `CREATE INDEX IF NOT EXISTS idx_issue_notes_issue_id ON issue_notes(issue_id)`
     ),
     await runMigration(
-      "normalize property recovery priority labels",
+      "set property recovery priority defaults",
       `
-      UPDATE rooms SET priority = 'Medium' WHERE priority = 'Normal';
-      UPDATE issues SET priority = 'Medium' WHERE priority = 'Normal';
-      ALTER TABLE rooms ALTER COLUMN priority SET DEFAULT 'Medium';
-      ALTER TABLE issues ALTER COLUMN priority SET DEFAULT 'Medium';
+      ALTER TABLE rooms ALTER COLUMN priority SET DEFAULT 'Normal';
+      ALTER TABLE issues ALTER COLUMN priority SET DEFAULT 'Normal';
       `
     ),
     await runMigration(
@@ -999,90 +997,90 @@ async function initializeDatabase() {
       FROM properties p
       CROSS JOIN (VALUES
         ('101', 1, 'PNK1', 'OOO',        'no heat, no microwave, no lock, no toilet, no AC, no bed, no TV, no lamps, no shower head, no soap', 'Critical', NULL::TEXT),
-        ('102', 1, 'ENK1', 'In Service', NULL::TEXT, 'Medium', NULL::TEXT),
-        ('103', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('104', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('105', 1, 'NDD1', 'In Service', NULL,       'Medium', 'no heat'),
-        ('106', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('107', 1, 'PNK1', 'In Service', NULL,       'Medium', NULL),
-        ('108', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('109', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('110', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('111', 1, 'PNK1', 'In Service', NULL,       'Medium', NULL),
-        ('112', 1, 'NDD1', 'OOO',        'dresser handle broke, toilet leaks', 'Medium', NULL),
-        ('113', 1, 'NDD1', 'In Service', NULL,       'Medium', 'no heat (occupied long-term)'),
-        ('114', 1, 'NDD1', 'OOO',        'toilet broken, shower head broke, no soap', 'Medium', NULL),
-        ('115', 1, 'PNK1', 'In Service', NULL,       'Medium', NULL),
-        ('129', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('131', 1, 'ENK1', 'In Service', NULL,       'Medium', NULL),
-        ('133', 1, 'PNK1', 'OOO',        'preventative maintenance', 'Medium', NULL),
-        ('134', 1, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('201', 2, 'NDD1', 'In Service', NULL,       'Medium', 'no heat'),
-        ('202', 2, 'NDD1', 'In Service', NULL,       'Medium', 'no heat, door does not close'),
-        ('203', 2, 'NDD1', 'In Service', NULL,       'Medium', 'no heat (occupied)'),
-        ('204', 2, 'NDD1', 'In Service', NULL,       'Medium', 'no heat'),
-        ('205', 2, 'NDD1', 'OOO',        'no heat', 'Medium', NULL),
-        ('206', 2, 'NDD1', 'In Service', NULL,       'Medium', 'no heat'),
-        ('207', 2, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('208', 2, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('209', 2, 'NDD1', 'In Service', NULL,       'Medium', NULL),
+        ('102', 1, 'ENK1', 'In Service', NULL::TEXT, 'Normal', NULL::TEXT),
+        ('103', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('104', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('105', 1, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('106', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('107', 1, 'PNK1', 'In Service', NULL,       'Normal', NULL),
+        ('108', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('109', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('110', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('111', 1, 'PNK1', 'In Service', NULL,       'Normal', NULL),
+        ('112', 1, 'NDD1', 'OOO',        'dresser handle broke, toilet leaks', 'Normal', NULL),
+        ('113', 1, 'NDD1', 'In Service', NULL,       'Normal', 'no heat (occupied long-term)'),
+        ('114', 1, 'NDD1', 'OOO',        'toilet broken, shower head broke, no soap', 'Normal', NULL),
+        ('115', 1, 'PNK1', 'In Service', NULL,       'Normal', NULL),
+        ('129', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('131', 1, 'ENK1', 'In Service', NULL,       'Normal', NULL),
+        ('133', 1, 'PNK1', 'OOO',        'preventative maintenance', 'Normal', NULL),
+        ('134', 1, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('201', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('202', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat, door does not close'),
+        ('203', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat (occupied)'),
+        ('204', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('205', 2, 'NDD1', 'OOO',        'no heat', 'Normal', NULL),
+        ('206', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat'),
+        ('207', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('208', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('209', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
         ('210', 2, 'NDD1', 'OOO',        'toilet out of service', 'High', NULL),
-        ('211', 2, 'NDD1', 'OOO',        'no heat', 'Medium', NULL),
-        ('212', 2, 'NDD1', 'In Service', NULL,       'Medium', 'heating issue; room 312 leaking into ceiling'),
-        ('213', 2, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('214', 2, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('215', 2, 'NDD1', 'In Service', NULL,       'Medium', 'air unit issue'),
-        ('216', 2, 'NDD1', 'In Service', NULL,       'Medium', 'air unit not working'),
-        ('217', 2, 'NDD1', 'In Service', NULL,       'Medium', 'no heat (occupied)'),
-        ('218', 2, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('219', 2, 'NDD1', 'In Service', NULL,       'Medium', NULL),
-        ('220', 2, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('222', 2, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('223', 2, 'NDD1', 'In Service', NULL,       'Medium', 'toilet issue (occupied)'),
-        ('224', 2, 'NDD1', 'In Service', NULL,       'Medium', NULL),
+        ('211', 2, 'NDD1', 'OOO',        'no heat', 'Normal', NULL),
+        ('212', 2, 'NDD1', 'In Service', NULL,       'Normal', 'heating issue; room 312 leaking into ceiling'),
+        ('213', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('214', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('215', 2, 'NDD1', 'In Service', NULL,       'Normal', 'air unit issue'),
+        ('216', 2, 'NDD1', 'In Service', NULL,       'Normal', 'air unit not working'),
+        ('217', 2, 'NDD1', 'In Service', NULL,       'Normal', 'no heat (occupied)'),
+        ('218', 2, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('219', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
+        ('220', 2, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('222', 2, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('223', 2, 'NDD1', 'In Service', NULL,       'Normal', 'toilet issue (occupied)'),
+        ('224', 2, 'NDD1', 'In Service', NULL,       'Normal', NULL),
         ('225', 2, 'NDD1', 'OOO',        'toilet, odor, ceiling leak in bathroom', 'High', NULL),
         ('226', 2, 'NDD1', 'OOO',        'water intrusion causing lobby leak', 'High', NULL),
-        ('227', 2, 'NDD1', 'In Service', NULL,       'Medium', 'potential leak source for lobby water'),
+        ('227', 2, 'NDD1', 'In Service', NULL,       'Normal', 'potential leak source for lobby water'),
         ('228', 2, 'NDD1', 'OOO',        'active leak in room', 'High', NULL),
-        ('229', 2, 'NDD1', 'OOO',        'no heat', 'Medium', NULL),
-        ('230', 2, 'NDD1', 'OOO',        'preventative maintenance', 'Medium', NULL),
-        ('231', 2, 'NDD1', 'In Service', NULL,       'Medium', 'heat and toilet issues'),
-        ('232', 2, 'NDD1', 'In Service', NULL,       'Medium', 'door lock issue'),
-        ('233', 2, 'NDD1', 'In Service', NULL,       'Medium', 'heat not working (occupied)'),
-        ('234', 2, 'NDD1', 'OOO',        'needs ozone treatment for odor', 'Medium', NULL),
-        ('301', 3, 'NDD2', 'OOO',        'door lock battery dead', 'Medium', NULL),
-        ('302', 3, 'NK2',  'OOO',        'door issue', 'Medium', NULL),
-        ('303', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('304', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
-        ('305', 3, 'NDD2', 'OOO',        'hole in sink', 'Medium', NULL),
-        ('306', 3, 'NK2',  'In Service', NULL,       'Medium', 'toilet issue'),
-        ('307', 3, 'NDD2', 'In Service', NULL,       'Medium', 'door lock issue (occupied)'),
-        ('308', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
-        ('309', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('310', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
-        ('311', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('312', 3, 'NK2',  'OOO',        'odor, toilet leaks, no towels', 'Medium', NULL),
+        ('229', 2, 'NDD1', 'OOO',        'no heat', 'Normal', NULL),
+        ('230', 2, 'NDD1', 'OOO',        'preventative maintenance', 'Normal', NULL),
+        ('231', 2, 'NDD1', 'In Service', NULL,       'Normal', 'heat and toilet issues'),
+        ('232', 2, 'NDD1', 'In Service', NULL,       'Normal', 'door lock issue'),
+        ('233', 2, 'NDD1', 'In Service', NULL,       'Normal', 'heat not working (occupied)'),
+        ('234', 2, 'NDD1', 'OOO',        'needs ozone treatment for odor', 'Normal', NULL),
+        ('301', 3, 'NDD2', 'OOO',        'door lock battery dead', 'Normal', NULL),
+        ('302', 3, 'NK2',  'OOO',        'door issue', 'Normal', NULL),
+        ('303', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('304', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('305', 3, 'NDD2', 'OOO',        'hole in sink', 'Normal', NULL),
+        ('306', 3, 'NK2',  'In Service', NULL,       'Normal', 'toilet issue'),
+        ('307', 3, 'NDD2', 'In Service', NULL,       'Normal', 'door lock issue (occupied)'),
+        ('308', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('309', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('310', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('311', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('312', 3, 'NK2',  'OOO',        'odor, toilet leaks, no towels', 'Normal', NULL),
         ('313', 3, 'NDD2', 'OOO',        'no towels', 'Low', NULL),
-        ('314', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
-        ('315', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
+        ('314', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('315', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
         ('316', 3, 'NK2',  'OOO',        'wall damage, leaks when raining, no towels', 'High', NULL),
-        ('317', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
+        ('317', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
         ('318', 3, 'NDD2', 'OOO',        'water leak above TV area, sink backed up, no shower curtain, no microwave, refrigerator barely works, no towels', 'High', NULL),
-        ('319', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('320', 3, 'NDD2', 'OOO',        'sink clogged, no towels', 'Medium', NULL),
-        ('322', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('323', 3, 'NK2',  'In Service', NULL,       'Medium', 'tall lamp broken'),
-        ('324', 3, 'NDD2', 'In Service', NULL,       'Medium', NULL),
-        ('325', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
-        ('326', 3, 'NDD2', 'OOO',        'door issue', 'Medium', NULL),
-        ('327', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
+        ('319', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('320', 3, 'NDD2', 'OOO',        'sink clogged, no towels', 'Normal', NULL),
+        ('322', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('323', 3, 'NK2',  'In Service', NULL,       'Normal', 'tall lamp broken'),
+        ('324', 3, 'NDD2', 'In Service', NULL,       'Normal', NULL),
+        ('325', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('326', 3, 'NDD2', 'OOO',        'door issue', 'Normal', NULL),
+        ('327', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
         ('328', 3, 'NDD2', 'OOO',        'water pooling outside door, door issue', 'High', NULL),
-        ('329', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
+        ('329', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
         ('330', 3, 'NDD2', 'OOO',        'hallway ceiling leaking, door issue', 'High', NULL),
-        ('331', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
+        ('331', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
         ('332', 3, 'NDD2', 'OOO',        'leaks when raining, no towels', 'High', NULL),
-        ('333', 3, 'NK2',  'In Service', NULL,       'Medium', NULL),
-        ('334', 3, 'NDD2', 'In Service', NULL,       'Medium', 'odor, no towels')
+        ('333', 3, 'NK2',  'In Service', NULL,       'Normal', NULL),
+        ('334', 3, 'NDD2', 'In Service', NULL,       'Normal', 'odor, no towels')
       ) AS v(room_number, floor, room_type, status, oos_reason, priority, notes)
       WHERE p.name = 'La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg'
         AND NOT EXISTS (
@@ -2249,7 +2247,7 @@ async function handleUpdateInquiryNotes(req, res, inquiryId) {
 
 const roomStatuses = ["In Service", "OOO", "Maintenance", "Renovation", "Mothballed"];
 const roomStatusOptions = new Set(roomStatuses);
-const roomPriorities = ["Low", "Medium", "High", "Critical"];
+const roomPriorities = ["Low", "Normal", "High", "Critical"];
 const roomPriorityOptions = new Set(roomPriorities);
 
 function mapRoom(row) {
@@ -2264,7 +2262,7 @@ function mapRoom(row) {
     status: row.status,
     oosReason: row.oos_reason,
     returnDate: row.return_date,
-    priority: row.priority,
+    priority: row.priority === "Medium" ? "Normal" : row.priority,
     notes: row.notes,
     readyForReturnAt: row.ready_for_return_at || null,
     readyForReturnNote: row.ready_for_return_note || null
@@ -2332,11 +2330,11 @@ async function handlePropertySummary(req, res, propertyId = null) {
         [scopedPropertyId]
       ),
       pool.query(
-        `SELECT priority, COUNT(*) AS count
+        `SELECT CASE WHEN priority = 'Medium' THEN 'Normal' ELSE priority END AS priority, COUNT(*) AS count
          FROM rooms r
          WHERE r.property_id = $1
            AND r.status != 'In Service'
-         GROUP BY priority`,
+         GROUP BY CASE WHEN priority = 'Medium' THEN 'Normal' ELSE priority END`,
         [scopedPropertyId]
       ),
       pool.query(
@@ -2574,7 +2572,7 @@ async function handleUpdateRoom(req, res, roomId, propertyId = null) {
   }
 
   if ("priority" in payload) {
-    const val = cleanString(payload.priority);
+    const val = cleanPriority(payload.priority);
     if (!roomPriorityOptions.has(val)) {
       sendJson(res, 400, { ok: false, error: `Invalid priority. Valid values: ${roomPriorities.join(", ")}.` });
       return;
@@ -2954,7 +2952,7 @@ async function handleRepairsReport(req, res, parsedUrl, propertyId = null) {
         roomNumber: row.room_number,
         floor: row.floor,
         roomStatus: row.room_status,
-        roomPriority: row.room_priority,
+        roomPriority: row.room_priority === "Medium" ? "Normal" : row.room_priority,
         oosReason: row.oos_reason,
         group: row.group_name,
         item: row.label,
@@ -2966,7 +2964,7 @@ async function handleRepairsReport(req, res, parsedUrl, propertyId = null) {
         roomNumber: row.room_number,
         floor: row.floor,
         roomStatus: row.room_status,
-        roomPriority: row.room_priority,
+        roomPriority: row.room_priority === "Medium" ? "Normal" : row.room_priority,
         oosReason: row.oos_reason,
         answered: parseInt(row.answered, 10),
         lastActivity: row.last_activity,
@@ -3085,6 +3083,181 @@ function parseOptionalInteger(value) {
 
   const parsed = parseInt(match[0], 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseStrictOptionalInteger(value, fieldName, errors, options = {}) {
+  const cleaned = typeof value === "number" ? String(value) : cleanString(value);
+  if (!cleaned) return null;
+  if (!/^-?\d+$/.test(cleaned)) {
+    errors.push(`${fieldName} must be a whole number.`);
+    return null;
+  }
+  const parsed = parseInt(cleaned, 10);
+  if (options.min !== undefined && parsed < options.min) {
+    errors.push(`${fieldName} must be at least ${options.min}.`);
+  }
+  if (options.max !== undefined && parsed > options.max) {
+    errors.push(`${fieldName} must be no more than ${options.max}.`);
+  }
+  return parsed;
+}
+
+function cleanPriority(value) {
+  const priority = cleanString(value) || "Normal";
+  return priority === "Medium" ? "Normal" : priority;
+}
+
+function validateRoomSetupPayload(payload, lineNumber = null) {
+  const prefix = lineNumber ? `Line ${lineNumber}: ` : "";
+  const errors = [];
+  const rawRoomNumber = payload.roomNumber ?? payload.room_number;
+  const roomNumber = typeof rawRoomNumber === "number" ? String(rawRoomNumber) : cleanString(rawRoomNumber);
+  const floor = parseStrictOptionalInteger(payload.floor, `${prefix}floor`, errors);
+  const roomType = cleanString(payload.roomType ?? payload.room_type);
+  const status = cleanString(payload.status) || "In Service";
+  const priority = cleanPriority(payload.priority);
+  const notes = cleanString(payload.notes);
+
+  if (!roomNumber) errors.push(`${prefix}room_number is required.`);
+  if (roomNumber.length > 40) errors.push(`${prefix}room_number must be 40 characters or fewer.`);
+  if (roomType.length > 80) errors.push(`${prefix}room_type must be 80 characters or fewer.`);
+  if (!roomStatusOptions.has(status)) {
+    errors.push(`${prefix}status must be one of: ${roomStatuses.join(", ")}.`);
+  }
+  if (!roomPriorityOptions.has(priority)) {
+    errors.push(`${prefix}priority must be one of: ${roomPriorities.join(", ")}.`);
+  }
+  if (notes.length > 2000) errors.push(`${prefix}notes must be 2000 characters or fewer.`);
+
+  return {
+    room: {
+      roomNumber,
+      floor,
+      roomType: roomType || null,
+      status,
+      priority,
+      notes: notes || null
+    },
+    errors
+  };
+}
+
+function parseCsvLikeLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      index += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
+function parseRoomImportText(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const rows = [];
+  const errors = [];
+
+  lines.forEach((rawLine, index) => {
+    const lineNumber = index + 1;
+    const line = rawLine.trim();
+    if (!line) return;
+    if (rows.length === 0 && /^room_?number\s*,/i.test(line)) return;
+
+    const values = parseCsvLikeLine(line);
+    if (values.length > 6) {
+      errors.push({ line: lineNumber, error: "Too many columns. Expected room_number,floor,room_type,status,priority,notes." });
+      return;
+    }
+
+    const [roomNumber, floor, roomType, status, priority, notes] = values;
+    const validated = validateRoomSetupPayload(
+      { roomNumber, floor, roomType, status, priority, notes },
+      lineNumber
+    );
+    for (const error of validated.errors) {
+      errors.push({ line: lineNumber, error });
+    }
+    if (validated.errors.length === 0) {
+      rows.push({ line: lineNumber, ...validated.room });
+    }
+  });
+
+  const seenRoomNumbers = new Map();
+  for (const row of rows) {
+    if (seenRoomNumbers.has(row.roomNumber)) {
+      errors.push({
+        line: row.line,
+        error: `Duplicate room_number ${row.roomNumber}; first seen on line ${seenRoomNumbers.get(row.roomNumber)}.`
+      });
+    } else {
+      seenRoomNumbers.set(row.roomNumber, row.line);
+    }
+  }
+
+  if (rows.length === 0 && errors.length === 0) {
+    errors.push({ line: null, error: "Paste at least one room row." });
+  }
+
+  return { rows, errors };
+}
+
+async function classifyRoomSetupRows(propertyId, rows) {
+  if (rows.length === 0) return { creates: [], updates: [] };
+  const result = await pool.query(
+    `SELECT room_number FROM rooms WHERE property_id = $1 AND room_number = ANY($2::text[])`,
+    [propertyId, rows.map((row) => row.roomNumber)]
+  );
+  const existing = new Set(result.rows.map((row) => row.room_number));
+  return {
+    creates: rows.filter((row) => !existing.has(row.roomNumber)),
+    updates: rows.filter((row) => existing.has(row.roomNumber))
+  };
+}
+
+async function upsertPropertyRooms(propertyId, rows, db = pool) {
+  const results = [];
+  for (const row of rows) {
+    const result = await db.query(
+      `INSERT INTO rooms (
+         property_id, room_number, floor, room_type, status, priority, notes, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (property_id, room_number)
+       DO UPDATE SET
+         floor = EXCLUDED.floor,
+         room_type = EXCLUDED.room_type,
+         status = EXCLUDED.status,
+         priority = EXCLUDED.priority,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()
+       RETURNING
+         id, created_at, updated_at, property_id, room_number, floor,
+         room_type, status, oos_reason, return_date, priority, notes,
+         ready_for_return_at, ready_for_return_note,
+         (xmax = 0) AS inserted`,
+      [propertyId, row.roomNumber, row.floor, row.roomType, row.status, row.priority, row.notes]
+    );
+    results.push({
+      action: result.rows[0].inserted ? "create" : "update",
+      room: mapRoom(result.rows[0])
+    });
+  }
+  return results;
 }
 
 async function handleListProperties(req, res, parsedUrl) {
@@ -3273,6 +3446,315 @@ async function handleCreateProperty(req, res) {
   } catch (error) {
     console.error("Create property error:", error.message);
     sendJson(res, 500, { ok: false, error: "Unable to create property." });
+  }
+}
+
+const propertyStatusOptions = new Set(["Active", "Inactive", "Archived"]);
+
+function validatePropertyUpdatePayload(payload) {
+  const errors = [];
+  const property = {};
+
+  if ("name" in payload) {
+    property.name = cleanString(payload.name);
+    if (!property.name) errors.push("Property name is required.");
+    if (property.name.length > 180) errors.push("Property name must be 180 characters or fewer.");
+  }
+  if ("location" in payload) property.location = cleanString(payload.location);
+  if ("brandFlag" in payload) property.brandFlag = cleanString(payload.brandFlag);
+  if ("totalRooms" in payload) property.totalRooms = parseStrictOptionalInteger(payload.totalRooms, "totalRooms", errors, { min: 0, max: 10000 });
+  if ("lifecycleStatus" in payload) {
+    property.lifecycleStatus = cleanString(payload.lifecycleStatus);
+    if (!propertyLifecycleStatusOptions.has(property.lifecycleStatus)) errors.push("Invalid property lifecycle status.");
+  }
+  if ("status" in payload) {
+    property.status = cleanString(payload.status) || "Active";
+    if (!propertyStatusOptions.has(property.status)) errors.push("Invalid property status.");
+  }
+  if ("primaryContactName" in payload) property.primaryContactName = cleanString(payload.primaryContactName);
+  if ("primaryContactEmail" in payload) {
+    property.primaryContactEmail = cleanString(payload.primaryContactEmail);
+    if (property.primaryContactEmail && !isValidEmail(property.primaryContactEmail)) {
+      errors.push("Primary contact email must be a valid email address.");
+    }
+  }
+  if ("primaryContactPhone" in payload) property.primaryContactPhone = cleanString(payload.primaryContactPhone);
+  if ("notes" in payload) property.notes = cleanString(payload.notes);
+  if ("onboardingNotes" in payload) property.onboardingNotes = cleanString(payload.onboardingNotes);
+
+  for (const [key, value] of Object.entries(property)) {
+    if (typeof value === "string" && value.length > 4000) {
+      errors.push(`${key} must be 4000 characters or fewer.`);
+    }
+  }
+
+  return { property, errors };
+}
+
+async function handleUpdateProperty(req, res, propertyId) {
+  if (!requireAdmin(req, res)) return;
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const { property, errors } = validatePropertyUpdatePayload(payload);
+    if (errors.length > 0) {
+      sendJson(res, 400, { ok: false, error: errors.join(" ") });
+      return;
+    }
+
+    const setClauses = [];
+    const params = [];
+    function addSet(column, value) {
+      params.push(value || null);
+      setClauses.push(`${column} = $${params.length}`);
+    }
+
+    if ("name" in property) addSet("name", property.name);
+    if ("location" in property) addSet("location", property.location);
+    if ("brandFlag" in property) addSet("brand_flag", property.brandFlag);
+    if ("totalRooms" in property) {
+      params.push(property.totalRooms);
+      setClauses.push(`total_rooms = $${params.length}`);
+    }
+    if ("lifecycleStatus" in property) addSet("lifecycle_status", property.lifecycleStatus);
+    if ("status" in property) addSet("status", property.status);
+    if ("primaryContactName" in property) addSet("primary_contact_name", property.primaryContactName);
+    if ("primaryContactEmail" in property) addSet("primary_contact_email", property.primaryContactEmail);
+    if ("primaryContactPhone" in property) addSet("primary_contact_phone", property.primaryContactPhone);
+    if ("notes" in property) addSet("notes", property.notes);
+    if ("onboardingNotes" in property) addSet("onboarding_notes", property.onboardingNotes);
+
+    if (setClauses.length === 0) {
+      sendJson(res, 400, { ok: false, error: "No editable property fields provided." });
+      return;
+    }
+
+    setClauses.push("updated_at = NOW()");
+    params.push(scopedPropertyId);
+
+    const result = await pool.query(
+      `UPDATE properties
+       SET ${setClauses.join(", ")}
+       WHERE id = $${params.length}
+       RETURNING
+         id, created_at, updated_at, source_inquiry_id, name, location,
+         brand_flag, total_rooms, management_co, owner_name, company,
+         primary_contact_name, primary_contact_email, primary_contact_phone,
+         property_relationship, current_challenge, urgency, lifecycle_status,
+         status, notes, onboarding_notes`,
+      params
+    );
+
+    sendJson(res, 200, { ok: true, property: mapProperty(result.rows[0]) });
+  } catch (error) {
+    console.error("Update property error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to update property." });
+  }
+}
+
+async function handleCreatePropertyRoom(req, res, propertyId) {
+  if (!requireAdmin(req, res)) return;
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const validated = validateRoomSetupPayload(payload);
+    if (validated.errors.length > 0) {
+      sendJson(res, 400, { ok: false, error: validated.errors.join(" ") });
+      return;
+    }
+
+    const result = await upsertPropertyRooms(scopedPropertyId, [validated.room]);
+    sendJson(res, 200, { ok: true, ...result[0] });
+  } catch (error) {
+    console.error("Create property room error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to save room." });
+  }
+}
+
+async function handleBulkGeneratePropertyRooms(req, res, propertyId) {
+  if (!requireAdmin(req, res)) return;
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const errors = [];
+    const floor = parseStrictOptionalInteger(payload.floor, "floor", errors);
+    const startRoomNumber = parseStrictOptionalInteger(payload.startRoomNumber, "startRoomNumber", errors, { min: 1 });
+    const endRoomNumber = parseStrictOptionalInteger(payload.endRoomNumber, "endRoomNumber", errors, { min: 1 });
+    const roomType = cleanString(payload.roomType);
+    const status = cleanString(payload.status) || "In Service";
+    const priority = cleanPriority(payload.priority);
+    const notes = cleanString(payload.notes);
+
+    if (!roomStatusOptions.has(status)) errors.push(`status must be one of: ${roomStatuses.join(", ")}.`);
+    if (!roomPriorityOptions.has(priority)) errors.push(`priority must be one of: ${roomPriorities.join(", ")}.`);
+    if (startRoomNumber !== null && endRoomNumber !== null && startRoomNumber > endRoomNumber) {
+      errors.push("startRoomNumber must be less than or equal to endRoomNumber.");
+    }
+    const count = startRoomNumber !== null && endRoomNumber !== null ? endRoomNumber - startRoomNumber + 1 : 0;
+    if (count > 300) errors.push("Bulk generate is limited to 300 rooms per request.");
+    if (roomType.length > 80) errors.push("roomType must be 80 characters or fewer.");
+    if (notes.length > 2000) errors.push("notes must be 2000 characters or fewer.");
+
+    if (errors.length > 0) {
+      sendJson(res, 400, { ok: false, error: errors.join(" ") });
+      return;
+    }
+
+    const rows = [];
+    for (let number = startRoomNumber; number <= endRoomNumber; number += 1) {
+      rows.push({
+        roomNumber: String(number),
+        floor,
+        roomType: roomType || null,
+        status,
+        priority,
+        notes: notes || null
+      });
+    }
+
+    const classified = await classifyRoomSetupRows(scopedPropertyId, rows);
+    const result = await upsertPropertyRooms(scopedPropertyId, rows);
+    sendJson(res, 200, {
+      ok: true,
+      created: classified.creates.length,
+      updated: classified.updates.length,
+      results: result
+    });
+  } catch (error) {
+    console.error("Bulk generate rooms error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to bulk generate rooms." });
+  }
+}
+
+async function handlePreviewPropertyRoomImport(req, res, propertyId) {
+  if (!requireAdmin(req, res)) return;
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const parsed = parseRoomImportText(payload.text);
+    const classified = await classifyRoomSetupRows(scopedPropertyId, parsed.rows);
+    sendJson(res, 200, {
+      ok: true,
+      creates: classified.creates,
+      updates: classified.updates,
+      errors: parsed.errors,
+      validRows: parsed.rows.length
+    });
+  } catch (error) {
+    console.error("Preview room import error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to preview room import." });
+  }
+}
+
+async function handleCommitPropertyRoomImport(req, res, propertyId) {
+  if (!requireAdmin(req, res)) return;
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const parsed = parseRoomImportText(payload.text);
+    const classified = await classifyRoomSetupRows(scopedPropertyId, parsed.rows);
+    if (parsed.errors.length > 0) {
+      sendJson(res, 400, {
+        ok: false,
+        error: "Import has validation errors. Fix the preview errors before committing.",
+        errors: parsed.errors,
+        creates: classified.creates,
+        updates: classified.updates
+      });
+      return;
+    }
+
+    await client.query("BEGIN");
+    const results = await upsertPropertyRooms(scopedPropertyId, parsed.rows, client);
+    await client.query("COMMIT");
+    sendJson(res, 200, {
+      ok: true,
+      created: classified.creates.length,
+      updated: classified.updates.length,
+      results
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Commit room import error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to commit room import." });
+  } finally {
+    client.release();
   }
 }
 
@@ -4641,6 +5123,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const propertyUpdateMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)$/);
+  if (req.method === "PATCH" && propertyUpdateMatch) {
+    handleUpdateProperty(req, res, propertyUpdateMatch[1]);
+    return;
+  }
+
   const propertyLifecycleMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/lifecycle-status$/);
   if (req.method === "PATCH" && propertyLifecycleMatch) {
     handleUpdatePropertyLifecycleStatus(req, res, propertyLifecycleMatch[1]);
@@ -4662,6 +5150,34 @@ const server = http.createServer((req, res) => {
   const propertyRoomsMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/rooms$/);
   if (req.method === "GET" && propertyRoomsMatch) {
     handleListRooms(req, res, parsedUrl, propertyRoomsMatch[1]);
+    return;
+  }
+  if (req.method === "POST" && propertyRoomsMatch) {
+    handleCreatePropertyRoom(req, res, propertyRoomsMatch[1]);
+    return;
+  }
+
+  const propertyBulkGenerateRoomsMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/properties\/(\d+)\/rooms\/bulk-generate$/
+  );
+  if (req.method === "POST" && propertyBulkGenerateRoomsMatch) {
+    handleBulkGeneratePropertyRooms(req, res, propertyBulkGenerateRoomsMatch[1]);
+    return;
+  }
+
+  const propertyBulkImportPreviewMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/properties\/(\d+)\/rooms\/bulk-import\/preview$/
+  );
+  if (req.method === "POST" && propertyBulkImportPreviewMatch) {
+    handlePreviewPropertyRoomImport(req, res, propertyBulkImportPreviewMatch[1]);
+    return;
+  }
+
+  const propertyBulkImportCommitMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/properties\/(\d+)\/rooms\/bulk-import\/commit$/
+  );
+  if (req.method === "POST" && propertyBulkImportCommitMatch) {
+    handleCommitPropertyRoomImport(req, res, propertyBulkImportCommitMatch[1]);
     return;
   }
 

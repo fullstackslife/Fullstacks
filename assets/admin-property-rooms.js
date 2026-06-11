@@ -2,7 +2,7 @@
   const storageKey = "fullstacksAdminToken";
   const propertyStorageKey = "fullstacksAdminPropertyId";
   const roomStatuses = ["In Service", "OOO", "Maintenance", "Renovation", "Mothballed"];
-  const roomPriorities = ["Low", "Medium", "High", "Critical"];
+  const roomPriorities = ["Low", "Normal", "High", "Critical"];
   let adminToken = localStorage.getItem(storageKey) || "";
   let selectedPropertyId = localStorage.getItem(propertyStorageKey) || "";
   let properties = [];
@@ -281,7 +281,7 @@
         <div><dt>Room Number</dt><dd>${escapeHtml(room.roomNumber)}</dd></div>
         <div><dt>Type</dt><dd>${escapeHtml(room.roomType || "-")}</dd></div>
         <div><dt>Floor</dt><dd>${room.floor != null ? room.floor : "-"}</dd></div>
-        <div><dt>Priority</dt><dd>${escapeHtml(room.priority || "Medium")}</dd></div>
+        <div><dt>Priority</dt><dd>${escapeHtml(room.priority || "Normal")}</dd></div>
         ${returnDateValue ? `<div><dt>Return Date</dt><dd>${escapeHtml(formatDate(returnDateValue))}</dd></div>` : ""}
       </dl>
 
@@ -829,7 +829,7 @@
       ["#room-notes", room.notes],
       ["#room-oos-reason", room.oosReason],
       ["#room-return-date", room.returnDate ? String(room.returnDate).slice(0, 10) : ""],
-      ["#room-priority-select", room.priority || "Medium"]
+      ["#room-priority-select", room.priority || "Normal"]
     ];
     for (const [selector, original] of fields) {
       const el = walkSection.querySelector(selector);

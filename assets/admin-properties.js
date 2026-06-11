@@ -1,11 +1,15 @@
 (function () {
   const storageKey = "fullstacksAdminToken";
   const statuses = ["Lead", "Discovery", "Assessment", "Active Recovery", "Monitoring", "Closed Won", "Closed Lost", "Archived"];
+  const propertyStatuses = ["Active", "Inactive", "Archived"];
+  const roomStatuses = ["In Service", "OOO", "Maintenance", "Renovation", "Mothballed"];
+  const roomPriorities = ["Low", "Normal", "High", "Critical"];
   const assignmentStatuses = ["Proposed", "Contacted", "Interviewing", "Assigned", "Active", "Completed", "Declined", "Removed"];
   let adminToken = localStorage.getItem(storageKey) || "";
   let properties = [];
   let consultantOptions = [];
   const assignmentsByProperty = new Map();
+  const importPreviewsByProperty = new Map();
   let selectedPropertyId = null;
   let pageOffset = 0;
   let pageTotal = 0;
@@ -188,6 +192,15 @@
           `<option value="${escapeHtml(status)}"${status === property.lifecycleStatus ? " selected" : ""}>${escapeHtml(status)}</option>`
       )
       .join("");
+    const propertyStatusOptions = propertyStatuses
+      .map((status) => `<option value="${escapeHtml(status)}"${status === property.status ? " selected" : ""}>${escapeHtml(status)}</option>`)
+      .join("");
+    const roomStatusOptions = roomStatuses
+      .map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`)
+      .join("");
+    const roomPriorityOptions = roomPriorities
+      .map((priority) => `<option value="${escapeHtml(priority)}"${priority === "Normal" ? " selected" : ""}>${escapeHtml(priority)}</option>`)
+      .join("");
     const consultantOptionsHtml = consultantOptions
       .map(
         (consultant) =>
@@ -221,6 +234,60 @@
         ${detailItem("Management Company", property.managementCompany)}
       </dl>
 
+      <h3 class="detail-section-heading">Edit Property</h3>
+      <form class="property-edit-form" id="property-edit-form">
+        <div class="form-grid compact-grid">
+          <label>
+            <span>Name</span>
+            <input name="name" type="text" maxlength="180" value="${escapeHtml(property.name || "")}" required />
+          </label>
+          <label>
+            <span>Location</span>
+            <input name="location" type="text" maxlength="180" value="${escapeHtml(property.location || "")}" />
+          </label>
+          <label>
+            <span>Brand / Flag</span>
+            <input name="brandFlag" type="text" maxlength="160" value="${escapeHtml(property.brandFlag || "")}" />
+          </label>
+          <label>
+            <span>Total Rooms</span>
+            <input name="totalRooms" type="number" min="0" max="10000" value="${property.totalRooms != null ? property.totalRooms : ""}" />
+          </label>
+          <label>
+            <span>Lifecycle</span>
+            <select name="lifecycleStatus">${statusOptions}</select>
+          </label>
+          <label>
+            <span>Property Status</span>
+            <select name="status">${propertyStatusOptions}</select>
+          </label>
+          <label>
+            <span>Contact Name</span>
+            <input name="primaryContactName" type="text" maxlength="180" value="${escapeHtml(property.primaryContactName || "")}" />
+          </label>
+          <label>
+            <span>Contact Email</span>
+            <input name="primaryContactEmail" type="email" maxlength="180" value="${escapeHtml(property.primaryContactEmail || "")}" />
+          </label>
+          <label>
+            <span>Contact Phone</span>
+            <input name="primaryContactPhone" type="tel" maxlength="80" value="${escapeHtml(property.primaryContactPhone || "")}" />
+          </label>
+          <label class="full-span">
+            <span>Notes</span>
+            <textarea name="notes" maxlength="4000" rows="3">${escapeHtml(property.notes || "")}</textarea>
+          </label>
+          <label class="full-span">
+            <span>Onboarding Notes</span>
+            <textarea name="onboardingNotes" maxlength="4000" rows="4">${escapeHtml(property.onboardingNotes || "")}</textarea>
+          </label>
+        </div>
+        <div class="detail-notes-footer">
+          <p class="form-status" id="property-edit-status" role="status" aria-live="polite"></p>
+          <button class="button secondary" id="save-property-btn" type="submit">Save Property</button>
+        </div>
+      </form>
+
       <h3 class="detail-section-heading">Primary Contact</h3>
       <dl class="detail-grid">
         ${detailItem("Name", property.primaryContactName)}
@@ -239,6 +306,93 @@
       <div class="detail-message">
         <p class="detail-message-label">Onboarding Notes</p>
         <p>${escapeHtml(property.onboardingNotes || property.notes || "No notes yet.")}</p>
+      </div>
+
+      <h3 class="detail-section-heading">Room Setup</h3>
+      <div class="detail-notes room-setup-panel">
+        <p class="empty-detail">Use these setup tools before opening room walk, repairs, or ready-for-return for a new property.</p>
+
+        <form id="manual-room-form" class="room-setup-form">
+          <h4>Manual Room</h4>
+          <div class="form-grid compact-grid">
+            <label>
+              <span>Room Number</span>
+              <input name="roomNumber" type="text" maxlength="40" required />
+            </label>
+            <label>
+              <span>Floor</span>
+              <input name="floor" type="number" />
+            </label>
+            <label>
+              <span>Room Type</span>
+              <input name="roomType" type="text" maxlength="80" />
+            </label>
+            <label>
+              <span>Status</span>
+              <select name="status">${roomStatusOptions}</select>
+            </label>
+            <label>
+              <span>Priority</span>
+              <select name="priority">${roomPriorityOptions}</select>
+            </label>
+            <label class="full-span">
+              <span>Notes</span>
+              <textarea name="notes" maxlength="2000" rows="2"></textarea>
+            </label>
+          </div>
+          <div class="detail-notes-footer">
+            <p class="form-status" id="manual-room-status" role="status" aria-live="polite"></p>
+            <button class="button secondary" type="submit">Save Room</button>
+          </div>
+        </form>
+
+        <form id="bulk-generate-form" class="room-setup-form">
+          <h4>Bulk Generate</h4>
+          <div class="form-grid compact-grid">
+            <label>
+              <span>Floor</span>
+              <input name="floor" type="number" />
+            </label>
+            <label>
+              <span>Start Room</span>
+              <input name="startRoomNumber" type="number" min="1" required />
+            </label>
+            <label>
+              <span>End Room</span>
+              <input name="endRoomNumber" type="number" min="1" required />
+            </label>
+            <label>
+              <span>Room Type Default</span>
+              <input name="roomType" type="text" maxlength="80" />
+            </label>
+            <label>
+              <span>Status Default</span>
+              <select name="status">${roomStatusOptions}</select>
+            </label>
+            <label>
+              <span>Priority Default</span>
+              <select name="priority">${roomPriorityOptions}</select>
+            </label>
+          </div>
+          <div class="detail-notes-footer">
+            <p class="form-status" id="bulk-generate-status" role="status" aria-live="polite"></p>
+            <button class="button secondary" type="submit">Generate Rooms</button>
+          </div>
+        </form>
+
+        <form id="bulk-import-form" class="room-setup-form">
+          <h4>Bulk Import</h4>
+          <label class="full-span">
+            <span>CSV-like rows</span>
+            <textarea name="text" id="bulk-import-text" rows="7" placeholder="room_number,floor,room_type,status,priority,notes&#10;101,1,NK2,In Service,Normal,Near lobby"></textarea>
+          </label>
+          <div class="detail-notes-footer">
+            <p class="form-status" id="bulk-import-status" role="status" aria-live="polite"></p>
+            <button class="button secondary" id="bulk-import-preview-btn" type="button">Preview Import</button>
+            <button class="button primary" id="bulk-import-commit-btn" type="button" disabled>Commit Import</button>
+          </div>
+          <div id="bulk-import-preview" class="import-preview"></div>
+        </form>
       </div>
 
       <h3 class="detail-section-heading">Consultant Matches</h3>
@@ -392,6 +546,130 @@
     }
   }
 
+  function formBody(form) {
+    const body = {};
+    for (const [key, value] of new FormData(form).entries()) {
+      body[key] = String(value || "").trim();
+    }
+    return body;
+  }
+
+  async function updateProperty(propertyId, form) {
+    const status = document.querySelector("#property-edit-status");
+    setStatus(status, "Saving property...", "");
+    try {
+      const payload = await apiFetch(`/api/admin/properties/${propertyId}`, {
+        method: "PATCH",
+        body: JSON.stringify(formBody(form))
+      });
+      properties = properties.map((property) => (property.id === propertyId ? payload.property : property));
+      selectedPropertyId = propertyId;
+      renderList();
+      setStatus(document.querySelector("#property-edit-status"), "Property saved.", "success");
+      setStatus(loadStatus, "Property saved.", "success");
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
+  }
+
+  async function saveManualRoom(propertyId, form) {
+    const status = document.querySelector("#manual-room-status");
+    setStatus(status, "Saving room...", "");
+    try {
+      const payload = await apiFetch(`/api/admin/properties/${propertyId}/rooms`, {
+        method: "POST",
+        body: JSON.stringify(formBody(form))
+      });
+      form.reset();
+      const priority = form.querySelector('select[name="priority"]');
+      if (priority) priority.value = "Normal";
+      const roomStatus = form.querySelector('select[name="status"]');
+      if (roomStatus) roomStatus.value = "In Service";
+      setStatus(status, `Room ${payload.room.roomNumber} ${payload.action === "create" ? "created" : "updated"}.`, "success");
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
+  }
+
+  async function bulkGenerateRooms(propertyId, form) {
+    const status = document.querySelector("#bulk-generate-status");
+    setStatus(status, "Generating rooms...", "");
+    try {
+      const payload = await apiFetch(`/api/admin/properties/${propertyId}/rooms/bulk-generate`, {
+        method: "POST",
+        body: JSON.stringify(formBody(form))
+      });
+      setStatus(status, `${payload.created} created, ${payload.updated} updated.`, "success");
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
+  }
+
+  function renderImportPreview(propertyId, preview) {
+    const container = document.querySelector("#bulk-import-preview");
+    const commitButton = document.querySelector("#bulk-import-commit-btn");
+    if (!container) return;
+
+    const errors = preview.errors || [];
+    const creates = preview.creates || [];
+    const updates = preview.updates || [];
+    const hasErrors = errors.length > 0;
+
+    container.innerHTML = `
+      <div class="import-preview-grid">
+        <div class="admin-count-card"><strong>${creates.length}</strong><span>Creates</span></div>
+        <div class="admin-count-card"><strong>${updates.length}</strong><span>Updates</span></div>
+        <div class="admin-count-card"><strong>${errors.length}</strong><span>Errors</span></div>
+      </div>
+      ${
+        hasErrors
+          ? `<ul class="import-errors">${errors.map((entry) => `<li>${entry.line ? `Line ${entry.line}: ` : ""}${escapeHtml(entry.error)}</li>`).join("")}</ul>`
+          : `<p class="empty-detail">Preview is clean. Commit will upsert ${creates.length + updates.length} room${creates.length + updates.length === 1 ? "" : "s"} for this property.</p>`
+      }
+    `;
+
+    importPreviewsByProperty.set(propertyId, preview);
+    if (commitButton) commitButton.disabled = hasErrors || creates.length + updates.length === 0;
+  }
+
+  async function previewRoomImport(propertyId) {
+    const status = document.querySelector("#bulk-import-status");
+    const text = document.querySelector("#bulk-import-text");
+    const commitButton = document.querySelector("#bulk-import-commit-btn");
+    if (commitButton) commitButton.disabled = true;
+    setStatus(status, "Previewing import...", "");
+    try {
+      const payload = await apiFetch(`/api/admin/properties/${propertyId}/rooms/bulk-import/preview`, {
+        method: "POST",
+        body: JSON.stringify({ text: text ? text.value : "" })
+      });
+      renderImportPreview(propertyId, payload);
+      setStatus(status, payload.errors && payload.errors.length ? "Preview has errors. Fix them before committing." : "Preview ready.", payload.errors && payload.errors.length ? "error" : "success");
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
+  }
+
+  async function commitRoomImport(propertyId) {
+    const status = document.querySelector("#bulk-import-status");
+    const text = document.querySelector("#bulk-import-text");
+    const commitButton = document.querySelector("#bulk-import-commit-btn");
+    setStatus(status, "Committing import...", "");
+    if (commitButton) commitButton.disabled = true;
+    try {
+      const payload = await apiFetch(`/api/admin/properties/${propertyId}/rooms/bulk-import/commit`, {
+        method: "POST",
+        body: JSON.stringify({ text: text ? text.value : "" })
+      });
+      importPreviewsByProperty.delete(propertyId);
+      const preview = document.querySelector("#bulk-import-preview");
+      if (preview) preview.innerHTML = "";
+      setStatus(status, `${payload.created} created, ${payload.updated} updated.`, "success");
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    }
+  }
+
   async function updateLifecycleStatus(propertyId, lifecycleStatus) {
     setStatus(loadStatus, "Updating property status...", "");
     try {
@@ -541,8 +819,42 @@
       createAssignment(selectedPropertyId);
     }
 
+    if (event.target.id === "bulk-import-preview-btn" && selectedPropertyId) {
+      previewRoomImport(selectedPropertyId);
+    }
+
+    if (event.target.id === "bulk-import-commit-btn" && selectedPropertyId) {
+      commitRoomImport(selectedPropertyId);
+    }
+
     if (event.target.classList.contains("remove-assignment-btn")) {
       removeAssignment(Number(event.target.dataset.assignmentId));
+    }
+  });
+
+  detail.addEventListener("submit", (event) => {
+    if (!selectedPropertyId) return;
+    if (event.target.id === "property-edit-form") {
+      event.preventDefault();
+      updateProperty(selectedPropertyId, event.target);
+    }
+    if (event.target.id === "manual-room-form") {
+      event.preventDefault();
+      saveManualRoom(selectedPropertyId, event.target);
+    }
+    if (event.target.id === "bulk-generate-form") {
+      event.preventDefault();
+      bulkGenerateRooms(selectedPropertyId, event.target);
+    }
+  });
+
+  detail.addEventListener("input", (event) => {
+    if (event.target.id === "bulk-import-text") {
+      const commitButton = document.querySelector("#bulk-import-commit-btn");
+      const preview = document.querySelector("#bulk-import-preview");
+      if (commitButton) commitButton.disabled = true;
+      if (preview) preview.innerHTML = "";
+      if (selectedPropertyId) importPreviewsByProperty.delete(selectedPropertyId);
     }
   });
 
