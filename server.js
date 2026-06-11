@@ -4047,6 +4047,8 @@ async function handleConsultantDashboard(req, res) {
      FROM property_consultant_assignments pca
      JOIN properties p ON p.id = pca.property_id
      WHERE pca.consultant_application_id = $1
+       AND pca.status IN ('Assigned', 'Active', 'Completed')
+       AND p.status = 'Active'
      ORDER BY pca.updated_at DESC`,
     [session.consultant_id]
   );
