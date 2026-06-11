@@ -1872,6 +1872,114 @@ h3 {
   color: var(--danger);
 }
 
+/* ── Repairs report (mobile-first cards) ── */
+
+.repairs-report {
+  display: grid;
+  gap: 14px;
+}
+
+.repair-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  box-shadow: var(--shadow);
+  border-radius: 8px;
+}
+
+.repair-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.repair-card-room {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.repair-room-number {
+  color: var(--accent-bright);
+  font-size: 1.7rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.repair-room-meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.repair-card-header .status-pill {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.repair-oos {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.repair-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.repair-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.repair-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.repair-item-group {
+  margin: 0 0 2px;
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.repair-item-label {
+  margin: 0 0 4px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.repair-item-notes {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.repair-item-updated {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (min-width: 1020px) {
+  .repairs-report {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
 @media (min-width: 700px) {
   .walk-mode {
     width: min(100%, 620px);

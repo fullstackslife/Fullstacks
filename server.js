@@ -2612,6 +2612,91 @@ async function handleChecklistSummaries(req, res) {
   }
 }
 
+async function handleRepairsReport(req, res, parsedUrl) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  const filters = ["r.status = 'Needs Repair'"];
+  const params = [];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const roomStatus = cleanString(parsedUrl.searchParams.get("room_status"));
+  const groupName = cleanString(parsedUrl.searchParams.get("group"));
+  const floorParam = parsedUrl.searchParams.get("floor");
+  const keyword = cleanString(parsedUrl.searchParams.get("q"));
+
+  if (roomStatus) addFilter("rm.status = ?", roomStatus);
+  if (groupName) addFilter("i.group_name = ?", groupName);
+
+  if (floorParam !== null && floorParam !== "") {
+    const floorInt = parseInt(floorParam, 10);
+    if (!isNaN(floorInt)) addFilter("rm.floor = ?", floorInt);
+  }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    const ph = `$${params.length}`;
+    filters.push(
+      `(rm.room_number ILIKE ${ph} OR i.label ILIKE ${ph} OR r.notes ILIKE ${ph} OR rm.notes ILIKE ${ph} OR rm.oos_reason ILIKE ${ph})`
+    );
+  }
+
+  try {
+    const [repairsResult, groupsResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           rm.id AS room_id, rm.room_number, rm.floor, rm.status AS room_status,
+           rm.priority AS room_priority, rm.oos_reason,
+           i.group_name, i.label, i.sort_order,
+           r.notes AS response_notes, r.updated_at
+         FROM room_checklist_responses r
+         JOIN room_checklist_items i ON i.id = r.item_id
+         JOIN rooms rm ON rm.id = r.room_id
+         WHERE ${filters.join(" AND ")}
+         ORDER BY rm.floor ASC NULLS LAST, rm.room_number ASC, i.sort_order ASC, i.id ASC
+         LIMIT 500`,
+        params
+      ),
+      pool.query(
+        `SELECT group_name
+         FROM room_checklist_items
+         WHERE active = TRUE
+         GROUP BY group_name
+         ORDER BY MIN(sort_order)`
+      )
+    ]);
+
+    sendJson(res, 200, {
+      ok: true,
+      total: repairsResult.rowCount,
+      groups: groupsResult.rows.map((row) => row.group_name),
+      repairs: repairsResult.rows.map((row) => ({
+        roomId: row.room_id,
+        roomNumber: row.room_number,
+        floor: row.floor,
+        roomStatus: row.room_status,
+        roomPriority: row.room_priority,
+        oosReason: row.oos_reason,
+        group: row.group_name,
+        item: row.label,
+        notes: row.response_notes,
+        updatedAt: row.updated_at
+      }))
+    });
+  } catch (error) {
+    console.error("Repairs report error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load repairs report." });
+  }
+}
+
 async function handleSaveRoomChecklist(req, res, roomId) {
   if (!requireAdmin(req, res)) return;
 
@@ -4065,6 +4150,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/admin/property/repairs") {
+    handleRepairsReport(req, res, parsedUrl);
+    return;
+  }
+
   const roomChecklistMatch = parsedUrl.pathname.match(/^\/api\/admin\/property\/rooms\/(\d+)\/checklist$/);
   if (req.method === "GET" && roomChecklistMatch) {
     handleGetRoomChecklist(req, res, roomChecklistMatch[1]);
@@ -4216,6 +4306,10 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && parsedUrl.pathname === "/admin/property/rooms") {
     req.url = "/admin/property/rooms.html";
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/admin/property/repairs") {
+    req.url = "/admin/property/repairs.html";
   }
 
   if (req.method === "GET" && parsedUrl.pathname === "/consultant") {

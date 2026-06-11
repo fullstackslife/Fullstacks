@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>Room Status | FullStacks.ink</title>
+    <title>Repair Needs | FullStacks.ink</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css?v=admin-20260613" />
-    <script src="/assets/admin-property-rooms.js?v=admin-20260613" defer></script>
+    <script src="/assets/admin-property-repairs.js?v=admin-20260613" defer></script>
   </head>
   <body class="admin-page">
     <header class="site-header" id="admin-site-header" hidden>
@@ -16,7 +16,7 @@
           <span class="brand-mark" aria-hidden="true">FS</span>
           <span>
             <strong>FullStacks.ink</strong>
-            <small>Room Status</small>
+            <small>Repair Needs</small>
           </span>
         </a>
         <div class="nav-links">
@@ -25,8 +25,8 @@
           <a href="/admin/consultants">Consultants</a>
           <a href="/admin/properties">Properties</a>
           <a href="/admin/property">Property</a>
-          <a href="/admin/property/rooms" aria-current="page">Rooms</a>
-          <a href="/admin/property/repairs">Repairs</a>
+          <a href="/admin/property/rooms">Rooms</a>
+          <a href="/admin/property/repairs" aria-current="page">Repairs</a>
           <a href="/">Public Site</a>
         </div>
       </nav>
@@ -35,8 +35,8 @@
     <main class="admin-shell">
       <section class="admin-hero" aria-labelledby="admin-title">
         <p class="section-kicker">Property Recovery</p>
-        <h1 id="admin-title">Room Status</h1>
-        <p>View and update room status, OOS reasons, and return-to-service dates.</p>
+        <h1 id="admin-title">Repair Needs</h1>
+        <p>Checklist items marked Needs Repair, grouped by room for prioritizing corrective work.</p>
       </section>
 
       <section class="inquiry-form admin-access" id="admin-access-panel" aria-labelledby="access-title">
@@ -53,31 +53,18 @@
           </div>
           <div class="form-footer">
             <p class="form-status" id="admin-token-status" role="status" aria-live="polite"></p>
-            <button class="button primary" type="submit">View Rooms</button>
+            <button class="button primary" type="submit">View Report</button>
           </div>
         </form>
       </section>
 
       <section class="admin-dashboard" id="admin-dashboard" hidden>
-        <div class="admin-counts" id="admin-counts" aria-label="Room status summary"></div>
-
-        <div class="admin-toolbar" id="room-toolbar">
-          <button class="button secondary" id="toggle-filters-btn" type="button" aria-expanded="false" aria-controls="room-filters">Filters</button>
-          <button class="button primary" id="walk-mode-btn" type="button">Walk Mode</button>
+        <div class="admin-toolbar" id="repairs-toolbar">
+          <button class="button secondary" id="toggle-filters-btn" type="button" aria-expanded="false" aria-controls="repair-filters">Filters</button>
+          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
         </div>
 
-        <form class="admin-filters" id="room-filters">
-          <label>
-            <span>Status</span>
-            <select name="status">
-              <option value="">All statuses</option>
-              <option>In Service</option>
-              <option>OOO</option>
-              <option>Maintenance</option>
-              <option>Renovation</option>
-              <option>Mothballed</option>
-            </select>
-          </label>
+        <form class="admin-filters" id="repair-filters">
           <label>
             <span>Floor</span>
             <select name="floor">
@@ -88,19 +75,25 @@
             </select>
           </label>
           <label>
-            <span>Room Type</span>
-            <select name="room_type">
-              <option value="">All types</option>
-              <option>PNK1</option>
-              <option>ENK1</option>
-              <option>NDD1</option>
-              <option>NDD2</option>
-              <option>NK2</option>
+            <span>Room Status</span>
+            <select name="room_status">
+              <option value="">All statuses</option>
+              <option>In Service</option>
+              <option>OOO</option>
+              <option>Maintenance</option>
+              <option>Renovation</option>
+              <option>Mothballed</option>
+            </select>
+          </label>
+          <label>
+            <span>Checklist Group</span>
+            <select name="group" id="group-filter">
+              <option value="">All groups</option>
             </select>
           </label>
           <label class="admin-search">
             <span>Search</span>
-            <input name="q" type="search" maxlength="120" placeholder="Room number, reason, notes" />
+            <input name="q" type="search" maxlength="120" placeholder="Room, item, notes, OOS reason" />
           </label>
           <div class="admin-filter-actions">
             <button class="button secondary" type="reset">Clear</button>
@@ -110,30 +103,9 @@
 
         <div class="admin-summary">
           <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
-          <button class="button secondary" id="admin-refresh" type="button">Refresh</button>
         </div>
 
-        <div class="admin-layout">
-          <section class="application-list" aria-label="Room list">
-            <div class="application-list-header">
-              <span>Room</span>
-              <span>Type / Floor</span>
-              <span>Status</span>
-            </div>
-            <div id="room-list"></div>
-          </section>
-
-          <aside class="application-detail" id="room-detail" aria-live="polite">
-            <p class="section-kicker">Room Details</p>
-            <p class="empty-detail">Select a room to view and update details.</p>
-          </aside>
-        </div>
-
-        <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
-
-        <div class="admin-pagination" id="admin-pagination" aria-live="polite"></div>
-
-        <section class="walk-mode" id="walk-mode" aria-label="Walk mode" hidden></section>
+        <section class="repairs-report" id="repairs-report" aria-label="Repair needs by room"></section>
       </section>
     </main>
   </body>
