@@ -1,8 +1,11 @@
 (function () {
   const storageKey = "fullstacksAdminToken";
+  const propertyStorageKey = "fullstacksAdminPropertyId";
   const roomStatuses = ["In Service", "OOO", "Maintenance", "Renovation", "Mothballed"];
   const roomPriorities = ["Low", "Medium", "High", "Critical"];
   let adminToken = localStorage.getItem(storageKey) || "";
+  let selectedPropertyId = localStorage.getItem(propertyStorageKey) || "";
+  let properties = [];
   let rooms = [];
   let selectedRoomId = null;
   let pageOffset = 0;
@@ -94,6 +97,61 @@
       throw error;
     }
     return payload;
+  }
+
+  function recoveryApi(path) {
+    return selectedPropertyId
+      ? `/api/admin/properties/${encodeURIComponent(selectedPropertyId)}${path}`
+      : `/api/admin/property${path}`;
+  }
+
+  function renderPropertySelector() {
+    const toolbar = document.querySelector("#room-toolbar");
+    if (!toolbar || document.querySelector("#admin-property-select")) return;
+    const wrap = document.createElement("label");
+    wrap.className = "admin-property-picker";
+    wrap.innerHTML = `
+      <span>Property</span>
+      <select id="admin-property-select" aria-label="Select property">
+        ${properties
+          .map((property) => `<option value="${property.id}">${escapeHtml(property.name || "Property " + property.id)}</option>`)
+          .join("")}
+      </select>`;
+    toolbar.insertBefore(wrap, toolbar.firstChild);
+    const select = wrap.querySelector("#admin-property-select");
+    if (selectedPropertyId) select.value = selectedPropertyId;
+    if (!select.value && properties[0]) {
+      select.value = String(properties[0].id);
+      selectedPropertyId = select.value;
+      localStorage.setItem(propertyStorageKey, selectedPropertyId);
+    }
+    select.addEventListener("change", () => {
+      selectedPropertyId = select.value;
+      localStorage.setItem(propertyStorageKey, selectedPropertyId);
+      rooms = [];
+      selectedRoomId = null;
+      checklistCache.clear();
+      checklistDirty.clear();
+      checklistSummaries = { totalItems: 0, rooms: {} };
+      if (walkActive) exitWalkMode();
+      loadRooms(false);
+    });
+  }
+
+  async function loadProperties() {
+    const payload = await apiFetch("/api/admin/properties?limit=200");
+    properties = payload.properties || [];
+    if (!selectedPropertyId || !properties.some((property) => String(property.id) === String(selectedPropertyId))) {
+      selectedPropertyId = properties[0] ? String(properties[0].id) : "";
+      if (selectedPropertyId) localStorage.setItem(propertyStorageKey, selectedPropertyId);
+    }
+    renderPropertySelector();
+  }
+
+  async function initializeDashboard() {
+    showDashboard();
+    await loadProperties();
+    await loadRooms(false);
   }
 
   function showDashboard() {
@@ -281,7 +339,7 @@
       const params = getFilters();
       params.set("limit", "100");
       params.set("offset", String(pageOffset));
-      const payload = await apiFetch(`/api/admin/property/rooms?${params.toString()}`);
+      const payload = await apiFetch(`${recoveryApi("/rooms")}?${params.toString()}`);
       const incoming = payload.rooms || [];
       pageTotal = payload.total || 0;
       pageHasMore = payload.hasMore || false;
@@ -318,7 +376,7 @@
   // Purely cosmetic — failures leave the rows without chips, nothing breaks.
   async function loadChecklistSummaries() {
     try {
-      const payload = await apiFetch("/api/admin/property/rooms/checklist-summaries");
+      const payload = await apiFetch(recoveryApi("/rooms/checklist-summaries"));
       checklistSummaries = { totalItems: payload.totalItems || 0, rooms: payload.rooms || {} };
       if (!walkActive) renderList();
     } catch (error) {
@@ -329,7 +387,7 @@
   async function updateRoomStatus(roomId, status) {
     setStatus(loadStatus, "Updating status...", "");
     try {
-      const payload = await apiFetch(`/api/admin/property/rooms/${roomId}/status`, {
+      const payload = await apiFetch(`${recoveryApi("/rooms")}/${roomId}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status })
       });
@@ -358,7 +416,7 @@
         notes: notes ? notes.value : undefined,
         priority: priority ? priority.value : undefined
       };
-      const payload = await apiFetch(`/api/admin/property/rooms/${roomId}`, {
+      const payload = await apiFetch(`${recoveryApi("/rooms")}/${roomId}`, {
         method: "PATCH",
         body: JSON.stringify(body)
       });
@@ -503,7 +561,7 @@
     const statusEl = walkSection.querySelector("#detail-save-status");
     setStatus(statusEl, "Updating status...", "");
     try {
-      const payload = await apiFetch(`/api/admin/property/rooms/${roomId}/status`, {
+      const payload = await apiFetch(`${recoveryApi("/rooms")}/${roomId}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status })
       });
@@ -538,7 +596,7 @@
     const body = walkSection.querySelector("#walk-checklist-body");
     if (body) body.innerHTML = '<p class="walk-check-state">Loading checklist...</p>';
     try {
-      const payload = await apiFetch(`/api/admin/property/rooms/${roomId}/checklist`);
+      const payload = await apiFetch(`${recoveryApi("/rooms")}/${roomId}/checklist`);
       checklistCache.set(
         roomId,
         (payload.items || []).map((it) => ({
@@ -652,7 +710,7 @@
       .map((it) => ({ itemId: it.id, status: it.status, notes: it.notes || "" }));
     if (responses.length === 0) return true;
     try {
-      await apiFetch(`/api/admin/property/rooms/${roomId}/checklist`, {
+      await apiFetch(`${recoveryApi("/rooms")}/${roomId}/checklist`, {
         method: "PATCH",
         body: JSON.stringify({ responses })
       });
@@ -741,7 +799,7 @@
     try {
       const checklistSaved = await saveWalkChecklist(room.id);
       if (!checklistSaved) return;
-      const payload = await apiFetch(`/api/admin/property/rooms/${room.id}/ready-for-return`, {
+      const payload = await apiFetch(`${recoveryApi("/rooms")}/${room.id}/ready-for-return`, {
         method: "POST",
         body: JSON.stringify({ note, setInService })
       });
@@ -820,8 +878,7 @@
     adminToken = tokenInput.value.trim();
     localStorage.setItem(storageKey, adminToken);
     setStatus(tokenStatus, "Checking access...", "");
-    showDashboard();
-    await loadRooms(false);
+    await initializeDashboard();
   });
 
   filtersForm.addEventListener("submit", async (event) => {
@@ -975,7 +1032,6 @@
   applyUrlParams();
 
   if (adminToken) {
-    showDashboard();
-    loadRooms(false);
+    initializeDashboard();
   }
 })();

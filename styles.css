@@ -1514,8 +1514,29 @@ h3 {
 
 .admin-toolbar {
   display: flex;
+  align-items: end;
   justify-content: flex-end;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-property-picker {
+  display: grid;
+  gap: 0.35rem;
+  margin-right: auto;
+  min-width: min(100%, 18rem);
+}
+
+.admin-property-picker span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.admin-property-picker select {
+  min-height: 2.7rem;
 }
 
 #toggle-filters-btn {

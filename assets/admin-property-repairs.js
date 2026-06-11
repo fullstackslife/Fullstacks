@@ -1,6 +1,9 @@
 (function () {
   const storageKey = "fullstacksAdminToken";
+  const propertyStorageKey = "fullstacksAdminPropertyId";
   let adminToken = localStorage.getItem(storageKey) || "";
+  let selectedPropertyId = localStorage.getItem(propertyStorageKey) || "";
+  let properties = [];
 
   const mobileQuery = window.matchMedia("(max-width: 680px)");
 
@@ -61,6 +64,55 @@
       throw error;
     }
     return payload;
+  }
+
+  function recoveryApi(path) {
+    return selectedPropertyId
+      ? `/api/admin/properties/${encodeURIComponent(selectedPropertyId)}${path}`
+      : `/api/admin/property${path}`;
+  }
+
+  function renderPropertySelector() {
+    const toolbar = document.querySelector("#repairs-toolbar");
+    if (!toolbar || document.querySelector("#admin-property-select")) return;
+    const wrap = document.createElement("label");
+    wrap.className = "admin-property-picker";
+    wrap.innerHTML = `
+      <span>Property</span>
+      <select id="admin-property-select" aria-label="Select property">
+        ${properties
+          .map((property) => `<option value="${property.id}">${escapeHtml(property.name || "Property " + property.id)}</option>`)
+          .join("")}
+      </select>`;
+    toolbar.insertBefore(wrap, toolbar.firstChild);
+    const select = wrap.querySelector("#admin-property-select");
+    if (selectedPropertyId) select.value = selectedPropertyId;
+    if (!select.value && properties[0]) {
+      select.value = String(properties[0].id);
+      selectedPropertyId = select.value;
+      localStorage.setItem(propertyStorageKey, selectedPropertyId);
+    }
+    select.addEventListener("change", () => {
+      selectedPropertyId = select.value;
+      localStorage.setItem(propertyStorageKey, selectedPropertyId);
+      loadReport();
+    });
+  }
+
+  async function loadProperties() {
+    const payload = await apiFetch("/api/admin/properties?limit=200");
+    properties = payload.properties || [];
+    if (!selectedPropertyId || !properties.some((property) => String(property.id) === String(selectedPropertyId))) {
+      selectedPropertyId = properties[0] ? String(properties[0].id) : "";
+      if (selectedPropertyId) localStorage.setItem(propertyStorageKey, selectedPropertyId);
+    }
+    renderPropertySelector();
+  }
+
+  async function initializeDashboard() {
+    showDashboard();
+    await loadProperties();
+    await loadReport();
   }
 
   function showDashboard() {
@@ -182,7 +234,7 @@
     setStatus(loadStatus, "Loading report...", "");
     try {
       const params = getFilters();
-      const payload = await apiFetch(`/api/admin/property/repairs?${params.toString()}`);
+      const payload = await apiFetch(`${recoveryApi("/repairs")}?${params.toString()}`);
       populateGroupFilter(payload.groups || []);
       const repairs = payload.repairs || [];
       const roomCount = new Set(repairs.map((r) => r.roomId)).size;
@@ -215,8 +267,7 @@
     adminToken = tokenInput.value.trim();
     localStorage.setItem(storageKey, adminToken);
     setStatus(tokenStatus, "Checking access...", "");
-    showDashboard();
-    await loadReport();
+    await initializeDashboard();
   });
 
   filtersForm.addEventListener("submit", async (event) => {
@@ -242,7 +293,6 @@
   refreshButton.addEventListener("click", () => loadReport());
 
   if (adminToken) {
-    showDashboard();
-    loadReport();
+    initializeDashboard();
   }
 })();

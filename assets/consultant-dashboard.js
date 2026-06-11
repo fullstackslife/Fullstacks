@@ -48,9 +48,32 @@
         statusBadge(a.assignmentStatus) +
       "</div>" +
       '<div class="assignment-meta">' + meta + "</div>" +
-      (a.notes ? '<div class="assignment-notes">' + escHtml(a.notes) + "</div>" : "");
+      (a.notes ? '<div class="assignment-notes">' + escHtml(a.notes) + "</div>" : "") +
+      '<button class="button secondary consultant-room-toggle" type="button" data-property-id="' + a.property.id + '">View Rooms</button>' +
+      '<div class="consultant-room-list" id="consultant-rooms-' + a.property.id + '" hidden></div>';
 
     return card;
+  }
+
+  function renderRooms(container, rooms) {
+    if (!rooms.length) {
+      container.innerHTML = '<p class="empty-state">No rooms are available for this property yet.</p>';
+      return;
+    }
+    container.innerHTML = rooms
+      .map(function (room) {
+        var meta = [room.roomType, room.floor != null ? "Floor " + room.floor : ""].filter(Boolean).join(" / ");
+        return (
+          '<div class="consultant-room-row">' +
+            '<div><strong>Room ' + escHtml(room.roomNumber) + '</strong>' +
+            (meta ? '<span>' + escHtml(meta) + '</span>' : '') +
+            (room.oosReason ? '<small>' + escHtml(room.oosReason) + '</small>' : '') +
+            '</div>' +
+            '<span class="status-badge">' + escHtml(room.status) + '</span>' +
+          '</div>'
+        );
+      })
+      .join("");
   }
 
   function init() {
@@ -84,6 +107,31 @@
             list.removeAttribute("hidden");
             data.assignments.forEach(function (a) {
               list.appendChild(renderAssignment(a));
+            });
+
+            list.addEventListener("click", function (event) {
+              var btn = event.target.closest(".consultant-room-toggle");
+              if (!btn) return;
+              var propertyId = btn.getAttribute("data-property-id");
+              var target = document.getElementById("consultant-rooms-" + propertyId);
+              if (!target) return;
+              if (!target.hidden) {
+                target.hidden = true;
+                btn.textContent = "View Rooms";
+                return;
+              }
+              target.hidden = false;
+              btn.textContent = "Hide Rooms";
+              target.innerHTML = '<p class="empty-state">Loading rooms...</p>';
+              fetch("/api/consultant/properties/" + encodeURIComponent(propertyId) + "/rooms?limit=100")
+                .then(function (res) { return res.json(); })
+                .then(function (payload) {
+                  if (!payload.ok) throw new Error(payload.error || "Unable to load rooms.");
+                  renderRooms(target, payload.rooms || []);
+                })
+                .catch(function (error) {
+                  target.innerHTML = '<p class="empty-state">' + escHtml(error.message) + "</p>";
+                });
             });
           });
       })

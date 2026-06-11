@@ -1148,6 +1148,66 @@ async function initializeDatabase() {
     await runMigration(
       "index inquiries by lower(email)",
       `CREATE INDEX IF NOT EXISTS idx_inquiries_lower_email ON inquiries (lower(email))`
+    ),
+    await runMigration(
+      "create client property access table",
+      `
+      CREATE TABLE IF NOT EXISTS client_property_access (
+        id SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        inquiry_id INTEGER NOT NULL REFERENCES inquiries(id),
+        property_id INTEGER NOT NULL REFERENCES properties(id),
+        access_level TEXT NOT NULL DEFAULT 'Viewer',
+        status TEXT NOT NULL DEFAULT 'Active',
+        UNIQUE (inquiry_id, property_id)
+      )
+      `
+    ),
+    await runMigration(
+      "index client property access by inquiry",
+      `CREATE INDEX IF NOT EXISTS idx_client_property_access_inquiry_id ON client_property_access(inquiry_id)`
+    ),
+    await runMigration(
+      "index client property access by property",
+      `CREATE INDEX IF NOT EXISTS idx_client_property_access_property_id ON client_property_access(property_id)`
+    ),
+    await runMigration(
+      "backfill client property access from source inquiries",
+      `
+      INSERT INTO client_property_access (inquiry_id, property_id, access_level, status, updated_at)
+      SELECT source_inquiry_id, id, 'Viewer', 'Active', NOW()
+      FROM properties
+      WHERE source_inquiry_id IS NOT NULL
+      ON CONFLICT (inquiry_id, property_id)
+      DO NOTHING
+      `
+    ),
+    await runMigration(
+      "create property staff users table",
+      `
+      CREATE TABLE IF NOT EXISTS property_staff_users (
+        id SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        property_id INTEGER NOT NULL REFERENCES properties(id),
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'Staff',
+        password_hash TEXT,
+        status TEXT NOT NULL DEFAULT 'Invited',
+        last_login_at TIMESTAMPTZ,
+        UNIQUE (property_id, email)
+      )
+      `
+    ),
+    await runMigration(
+      "index property staff users by property",
+      `CREATE INDEX IF NOT EXISTS idx_property_staff_users_property_id ON property_staff_users(property_id)`
+    ),
+    await runMigration(
+      "index property staff users by lower email",
+      `CREATE INDEX IF NOT EXISTS idx_property_staff_users_lower_email ON property_staff_users(lower(email))`
     )
   );
 
@@ -3246,6 +3306,15 @@ async function handleCreatePropertyFromInquiry(req, res, inquiryId) {
     );
 
     if (existing.rows.length > 0) {
+      await pool.query(
+        `
+          INSERT INTO client_property_access (inquiry_id, property_id, access_level, status, updated_at)
+          VALUES ($1, $2, 'Viewer', 'Active', NOW())
+          ON CONFLICT (inquiry_id, property_id)
+          DO UPDATE SET status = 'Active', updated_at = NOW()
+        `,
+        [inquiryId, existing.rows[0].id]
+      );
       sendJson(res, 200, { ok: true, existed: true, property: mapProperty(existing.rows[0]) });
       return;
     }
@@ -3318,6 +3387,16 @@ async function handleCreatePropertyFromInquiry(req, res, inquiryId) {
     await pool.query(
       `UPDATE inquiries SET status = 'Qualified', updated_at = NOW() WHERE id = $1 AND status IN ('New', 'Reviewing', 'Contacted')`,
       [inquiryId]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO client_property_access (inquiry_id, property_id, access_level, status, updated_at)
+        VALUES ($1, $2, 'Viewer', 'Active', NOW())
+        ON CONFLICT (inquiry_id, property_id)
+        DO UPDATE SET status = 'Active', updated_at = NOW()
+      `,
+      [inquiryId, result.rows[0].id]
     );
 
     sendJson(res, 201, { ok: true, existed: false, property: mapProperty(result.rows[0]) });
@@ -3995,6 +4074,171 @@ async function handleConsultantDashboard(req, res) {
 
 // ── Admin: set consultant password ─────────────────────────────────────────
 
+async function requireConsultantPropertyAccess(req, res, propertyId) {
+  const session = await requireConsultantSession(req, res);
+  if (!session) return null;
+
+  if (!/^\d+$/.test(String(propertyId))) {
+    sendJson(res, 400, { ok: false, error: "Invalid property ID." });
+    return null;
+  }
+
+  const result = await pool.query(
+    `SELECT
+       pca.id AS assignment_id,
+       pca.status AS assignment_status,
+       pca.role,
+       p.id AS property_id,
+       p.name AS property_name,
+       p.location AS property_location,
+       p.brand_flag,
+       p.total_rooms,
+       p.lifecycle_status
+     FROM property_consultant_assignments pca
+     JOIN properties p ON p.id = pca.property_id
+     WHERE pca.consultant_application_id = $1
+       AND pca.property_id = $2
+       AND pca.status IN ('Assigned', 'Active', 'Completed')
+       AND p.status = 'Active'
+     LIMIT 1`,
+    [session.consultant_id, propertyId]
+  );
+
+  if (result.rowCount === 0) {
+    sendJson(res, 404, { ok: false, error: "Property not found." });
+    return null;
+  }
+
+  return { session, assignment: result.rows[0] };
+}
+
+function mapConsultantProperty(row) {
+  return {
+    assignmentId: row.assignment_id,
+    assignmentStatus: row.assignment_status,
+    role: row.role,
+    property: {
+      id: row.property_id,
+      name: row.property_name,
+      location: row.property_location,
+      brandFlag: row.brand_flag,
+      totalRooms: row.total_rooms,
+      lifecycleStatus: row.lifecycle_status
+    }
+  };
+}
+
+async function handleConsultantProperties(req, res) {
+  const session = await requireConsultantSession(req, res);
+  if (!session) return;
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         pca.id AS assignment_id,
+         pca.status AS assignment_status,
+         pca.role,
+         p.id AS property_id,
+         p.name AS property_name,
+         p.location AS property_location,
+         p.brand_flag,
+         p.total_rooms,
+         p.lifecycle_status
+       FROM property_consultant_assignments pca
+       JOIN properties p ON p.id = pca.property_id
+       WHERE pca.consultant_application_id = $1
+         AND pca.status IN ('Assigned', 'Active', 'Completed')
+         AND p.status = 'Active'
+       ORDER BY pca.updated_at DESC`,
+      [session.consultant_id]
+    );
+
+    sendJson(res, 200, { ok: true, assignments: result.rows.map(mapConsultantProperty) });
+  } catch (err) {
+    console.error("Consultant properties error:", err && err.message ? err.message : err);
+    sendJson(res, 500, { ok: false, error: "Unable to load properties." });
+  }
+}
+
+async function handleConsultantPropertyDashboard(req, res, propertyId) {
+  const access = await requireConsultantPropertyAccess(req, res, propertyId);
+  if (!access) return;
+
+  sendJson(res, 200, {
+    ok: true,
+    assignment: mapConsultantProperty(access.assignment)
+  });
+}
+
+async function handleConsultantPropertyRooms(req, res, parsedUrl, propertyId) {
+  const access = await requireConsultantPropertyAccess(req, res, propertyId);
+  if (!access) return;
+
+  const filters = ["r.property_id = $1"];
+  const params = [propertyId];
+
+  function addFilter(sql, value) {
+    params.push(value);
+    filters.push(sql.replace("?", `$${params.length}`));
+  }
+
+  const status = cleanString(parsedUrl.searchParams.get("status"));
+  const roomType = cleanString(parsedUrl.searchParams.get("room_type"));
+  const floorParam = parsedUrl.searchParams.get("floor");
+  const keyword = cleanString(parsedUrl.searchParams.get("q"));
+  const limitParam = parseInt(parsedUrl.searchParams.get("limit"), 10);
+  const offsetParam = parseInt(parsedUrl.searchParams.get("offset"), 10);
+  const limit = !isNaN(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 100;
+  const offset = !isNaN(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
+
+  if (status) addFilter("r.status = ?", status);
+  if (roomType) addFilter("r.room_type = ?", roomType);
+
+  if (floorParam !== null && floorParam !== "") {
+    const floorInt = parseInt(floorParam, 10);
+    if (!isNaN(floorInt)) addFilter("r.floor = ?", floorInt);
+  }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    const ph = `$${params.length}`;
+    filters.push(`(r.room_number ILIKE ${ph} OR r.notes ILIKE ${ph} OR r.oos_reason ILIKE ${ph})`);
+  }
+
+  const whereClause = `WHERE ${filters.join(" AND ")}`;
+
+  try {
+    const countResult = await pool.query(`SELECT COUNT(*) FROM rooms r ${whereClause}`, params);
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    params.push(limit, offset);
+    const result = await pool.query(
+      `SELECT
+         r.id, r.created_at, r.updated_at, r.property_id, r.room_number,
+         r.floor, r.room_type, r.status, r.oos_reason, r.return_date,
+         r.priority, r.notes, r.ready_for_return_at, r.ready_for_return_note
+       FROM rooms r
+       ${whereClause}
+       ORDER BY r.floor ASC, r.room_number ASC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      statuses: roomStatuses,
+      rooms: result.rows.map(mapRoom),
+      total,
+      limit,
+      offset,
+      hasMore: offset + result.rows.length < total
+    });
+  } catch (err) {
+    console.error("Consultant property rooms error:", err && err.message ? err.message : err);
+    sendJson(res, 500, { ok: false, error: "Unable to load rooms." });
+  }
+}
+
 async function handleAdminSetConsultantPassword(req, res, consultantId) {
   if (!requireAdmin(req, res)) return;
   if (!pool || !databaseReady) {
@@ -4156,13 +4400,100 @@ async function handleClientMe(req, res) {
   });
 }
 
+function mapClientProperty(row, consultantsByProperty = {}) {
+  return {
+    id: row.id,
+    name: row.name,
+    location: row.location,
+    brandFlag: row.brand_flag,
+    totalRooms: row.total_rooms,
+    lifecycleStatus: row.lifecycle_status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    accessLevel: row.access_level,
+    consultants: consultantsByProperty[row.id] || []
+  };
+}
+
+async function listClientPropertiesForInquiry(inquiryId) {
+  return pool.query(
+    `SELECT DISTINCT ON (p.id)
+            p.id, p.name, p.location, p.brand_flag, p.total_rooms,
+            p.lifecycle_status, p.created_at, p.updated_at,
+            cpa.access_level
+     FROM properties p
+     JOIN client_property_access cpa ON cpa.property_id = p.id
+     WHERE cpa.inquiry_id = $1
+       AND cpa.status = 'Active'
+       AND p.status = 'Active'
+     ORDER BY p.id, p.created_at DESC`,
+    [inquiryId]
+  );
+}
+
+async function getClientSafeConsultants(propertyIds) {
+  const consultantsByProperty = {};
+  if (!propertyIds.length) return consultantsByProperty;
+
+  const consultantsResult = await pool.query(
+    `SELECT pca.property_id, pca.role, pca.status AS assignment_status,
+            ca.first_name, ca.last_name
+     FROM property_consultant_assignments pca
+     JOIN consultant_applications ca ON ca.id = pca.consultant_application_id
+     WHERE pca.property_id = ANY($1::int[])
+       AND pca.status IN ('Assigned', 'Active', 'Completed')
+     ORDER BY pca.updated_at DESC`,
+    [propertyIds]
+  );
+
+  for (const row of consultantsResult.rows) {
+    if (!consultantsByProperty[row.property_id]) consultantsByProperty[row.property_id] = [];
+    consultantsByProperty[row.property_id].push({
+      firstName: row.first_name,
+      lastName: row.last_name,
+      role: row.role,
+      status: row.assignment_status
+    });
+  }
+
+  return consultantsByProperty;
+}
+
+async function requireClientPropertyAccess(req, res, propertyId) {
+  const session = await requireClientSession(req, res);
+  if (!session) return null;
+
+  if (!/^\d+$/.test(String(propertyId))) {
+    sendJson(res, 400, { ok: false, error: "Invalid property ID." });
+    return null;
+  }
+
+  const result = await pool.query(
+    `SELECT cpa.access_level, p.id, p.name, p.location, p.brand_flag, p.total_rooms,
+            p.lifecycle_status, p.created_at, p.updated_at
+     FROM client_property_access cpa
+     JOIN properties p ON p.id = cpa.property_id
+     WHERE cpa.inquiry_id = $1
+       AND cpa.property_id = $2
+       AND cpa.status = 'Active'
+       AND p.status = 'Active'
+     LIMIT 1`,
+    [session.inquiry_id, propertyId]
+  );
+
+  if (result.rowCount === 0) {
+    sendJson(res, 404, { ok: false, error: "Property not found." });
+    return null;
+  }
+
+  return { session, property: result.rows[0] };
+}
+
 async function handleClientDashboard(req, res) {
   const session = await requireClientSession(req, res);
   if (!session) return;
 
   try {
-    const email = String(session.email || "").toLowerCase();
-
     // Only client-safe fields; never internal_notes, password_hash, ip, user_agent.
     const inquiryResult = await pool.query(
       `SELECT id, created_at, updated_at, name, email, phone, company,
@@ -4173,46 +4504,9 @@ async function handleClientDashboard(req, res) {
     );
     const inq = inquiryResult.rows[0];
 
-    // Properties linked to this inquiry, plus any tied to the same email so a
-    // client with multiple inquiries sees everything.
-    const propsResult = await pool.query(
-      `SELECT DISTINCT ON (p.id)
-              p.id, p.name, p.location, p.brand_flag, p.total_rooms,
-              p.lifecycle_status, p.created_at, p.updated_at
-       FROM properties p
-       LEFT JOIN inquiries src ON src.id = p.source_inquiry_id
-       WHERE p.source_inquiry_id = $1
-          OR lower(src.email) = $2
-          OR lower(p.primary_contact_email) = $2
-       ORDER BY p.id, p.created_at DESC`,
-      [session.inquiry_id, email]
-    );
-
+    const propsResult = await listClientPropertiesForInquiry(session.inquiry_id);
     const propertyIds = propsResult.rows.map((p) => p.id);
-    const consultantsByProperty = {};
-    if (propertyIds.length) {
-      // Only confirmed assignments; never expose pipeline candidates or
-      // consultant contact/compensation/notes.
-      const consultantsResult = await pool.query(
-        `SELECT pca.property_id, pca.role, pca.status AS assignment_status,
-                ca.first_name, ca.last_name
-         FROM property_consultant_assignments pca
-         JOIN consultant_applications ca ON ca.id = pca.consultant_application_id
-         WHERE pca.property_id = ANY($1::int[])
-           AND pca.status IN ('Assigned', 'Active', 'Completed')
-         ORDER BY pca.updated_at DESC`,
-        [propertyIds]
-      );
-      for (const row of consultantsResult.rows) {
-        if (!consultantsByProperty[row.property_id]) consultantsByProperty[row.property_id] = [];
-        consultantsByProperty[row.property_id].push({
-          firstName: row.first_name,
-          lastName: row.last_name,
-          role: row.role,
-          status: row.assignment_status
-        });
-      }
-    }
+    const consultantsByProperty = await getClientSafeConsultants(propertyIds);
 
     sendJson(res, 200, {
       ok: true,
@@ -4236,21 +4530,44 @@ async function handleClientDashboard(req, res) {
             status: inq.status
           }
         : null,
-      properties: propsResult.rows.map((p) => ({
-        id: p.id,
-        name: p.name,
-        location: p.location,
-        brandFlag: p.brand_flag,
-        totalRooms: p.total_rooms,
-        lifecycleStatus: p.lifecycle_status,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at,
-        consultants: consultantsByProperty[p.id] || []
-      }))
+      properties: propsResult.rows.map((p) => mapClientProperty(p, consultantsByProperty))
     });
   } catch (err) {
     console.error("Client dashboard error:", err && err.message ? err.message : err);
     sendJson(res, 500, { ok: false, error: "Could not load dashboard." });
+  }
+}
+
+async function handleClientProperties(req, res) {
+  const session = await requireClientSession(req, res);
+  if (!session) return;
+
+  try {
+    const propsResult = await listClientPropertiesForInquiry(session.inquiry_id);
+    const consultantsByProperty = await getClientSafeConsultants(propsResult.rows.map((p) => p.id));
+    sendJson(res, 200, {
+      ok: true,
+      properties: propsResult.rows.map((p) => mapClientProperty(p, consultantsByProperty))
+    });
+  } catch (err) {
+    console.error("Client properties error:", err && err.message ? err.message : err);
+    sendJson(res, 500, { ok: false, error: "Unable to load properties." });
+  }
+}
+
+async function handleClientPropertyDashboard(req, res, propertyId) {
+  const access = await requireClientPropertyAccess(req, res, propertyId);
+  if (!access) return;
+
+  try {
+    const consultantsByProperty = await getClientSafeConsultants([access.property.id]);
+    sendJson(res, 200, {
+      ok: true,
+      property: mapClientProperty(access.property, consultantsByProperty)
+    });
+  } catch (err) {
+    console.error("Client property dashboard error:", err && err.message ? err.message : err);
+    sendJson(res, 500, { ok: false, error: "Unable to load property dashboard." });
   }
 }
 
@@ -4541,6 +4858,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/api/consultant/properties") {
+    handleConsultantProperties(req, res);
+    return;
+  }
+
+  const consultantPropertyDashboardApiMatch = parsedUrl.pathname.match(/^\/api\/consultant\/properties\/(\d+)\/dashboard$/);
+  if (req.method === "GET" && consultantPropertyDashboardApiMatch) {
+    handleConsultantPropertyDashboard(req, res, consultantPropertyDashboardApiMatch[1]);
+    return;
+  }
+
+  const consultantPropertyRoomsApiMatch = parsedUrl.pathname.match(/^\/api\/consultant\/properties\/(\d+)\/rooms$/);
+  if (req.method === "GET" && consultantPropertyRoomsApiMatch) {
+    handleConsultantPropertyRooms(req, res, parsedUrl, consultantPropertyRoomsApiMatch[1]);
+    return;
+  }
+
   const setPasswordMatch = parsedUrl.pathname.match(/^\/api\/admin\/consultant-applications\/(\d+)\/password$/);
   if (req.method === "POST" && setPasswordMatch) {
     handleAdminSetConsultantPassword(req, res, setPasswordMatch[1]);
@@ -4565,6 +4899,17 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && parsedUrl.pathname === "/api/client/dashboard") {
     handleClientDashboard(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/client/properties") {
+    handleClientProperties(req, res);
+    return;
+  }
+
+  const clientPropertyDashboardMatch = parsedUrl.pathname.match(/^\/api\/client\/properties\/(\d+)\/dashboard$/);
+  if (req.method === "GET" && clientPropertyDashboardMatch) {
+    handleClientPropertyDashboard(req, res, clientPropertyDashboardMatch[1]);
     return;
   }
 
