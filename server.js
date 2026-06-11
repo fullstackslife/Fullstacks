@@ -2211,7 +2211,47 @@ function mapRoom(row) {
   };
 }
 
-async function handlePropertySummary(req, res) {
+const defaultRecoveryPropertyName = "La Quinta Inn & Suites by Wyndham New Cumberland-Harrisburg";
+
+async function resolveAdminPropertyId(res, propertyId) {
+  if (propertyId !== null && propertyId !== undefined) {
+    if (!/^\d+$/.test(String(propertyId))) {
+      sendJson(res, 400, { ok: false, error: "Invalid property ID." });
+      return null;
+    }
+
+    const result = await pool.query("SELECT id FROM properties WHERE id = $1", [propertyId]);
+    if (result.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Property not found." });
+      return null;
+    }
+
+    return parseInt(result.rows[0].id, 10);
+  }
+
+  const result = await pool.query(
+    `SELECT id
+     FROM properties
+     WHERE name = $1
+     UNION ALL
+     SELECT id
+     FROM properties
+     WHERE status = 'Active'
+       AND NOT EXISTS (SELECT 1 FROM properties WHERE name = $1)
+     ORDER BY id
+     LIMIT 1`,
+    [defaultRecoveryPropertyName]
+  );
+
+  if (result.rowCount === 0) {
+    sendJson(res, 404, { ok: false, error: "No default property is available." });
+    return null;
+  }
+
+  return parseInt(result.rows[0].id, 10);
+}
+
+async function handlePropertySummary(req, res, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!pool || !databaseReady) {
@@ -2220,27 +2260,30 @@ async function handlePropertySummary(req, res) {
   }
 
   try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
     const [roomStatusResult, roomPriorityResult, propertyResult] = await Promise.all([
       pool.query(
         `SELECT r.status, COUNT(*) AS count
          FROM rooms r
-         JOIN properties p ON p.id = r.property_id
-         WHERE p.status = 'Active'
-         GROUP BY r.status`
+         WHERE r.property_id = $1
+         GROUP BY r.status`,
+        [scopedPropertyId]
       ),
       pool.query(
         `SELECT priority, COUNT(*) AS count
          FROM rooms r
-         JOIN properties p ON p.id = r.property_id
-         WHERE r.status != 'In Service' AND p.status = 'Active'
-         GROUP BY priority`
+         WHERE r.property_id = $1
+           AND r.status != 'In Service'
+         GROUP BY priority`,
+        [scopedPropertyId]
       ),
       pool.query(
         `SELECT id, name, location, brand_flag, total_rooms, status
          FROM properties
-         WHERE status = 'Active'
-         ORDER BY id
-         LIMIT 1`
+         WHERE id = $1`,
+        [scopedPropertyId]
       )
     ]);
 
@@ -2284,7 +2327,7 @@ async function handlePropertySummary(req, res) {
   }
 }
 
-async function handleListRooms(req, res, parsedUrl) {
+async function handleListRooms(req, res, parsedUrl, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!pool || !databaseReady) {
@@ -2292,8 +2335,18 @@ async function handleListRooms(req, res, parsedUrl) {
     return;
   }
 
-  const filters = [];
-  const params = [];
+  let scopedPropertyId;
+  try {
+    scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+  } catch (error) {
+    console.error("Resolve property for rooms error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load property." });
+    return;
+  }
+  if (!scopedPropertyId) return;
+
+  const filters = ["r.property_id = $1"];
+  const params = [scopedPropertyId];
 
   function addFilter(sql, value) {
     params.push(value);
@@ -2362,7 +2415,7 @@ async function handleListRooms(req, res, parsedUrl) {
   }
 }
 
-async function handleUpdateRoomStatus(req, res, roomId) {
+async function handleUpdateRoomStatus(req, res, roomId, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!/^\d+$/.test(roomId)) {
@@ -2391,15 +2444,19 @@ async function handleUpdateRoomStatus(req, res, roomId) {
   }
 
   try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
     const result = await pool.query(
       `UPDATE rooms
        SET status = $1, updated_at = NOW()
        WHERE id = $2
+         AND property_id = $3
        RETURNING
          id, created_at, updated_at, property_id, room_number, floor,
          room_type, status, oos_reason, return_date, priority, notes,
          ready_for_return_at, ready_for_return_note`,
-      [status, roomId]
+      [status, roomId, scopedPropertyId]
     );
 
     if (result.rowCount === 0) {
@@ -2414,7 +2471,7 @@ async function handleUpdateRoomStatus(req, res, roomId) {
   }
 }
 
-async function handleUpdateRoom(req, res, roomId) {
+async function handleUpdateRoom(req, res, roomId, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!/^\d+$/.test(roomId)) {
@@ -2492,10 +2549,17 @@ async function handleUpdateRoom(req, res, roomId) {
   }
 
   try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    params.push(scopedPropertyId);
+    const propertyParam = params.length;
+
     const result = await pool.query(
       `UPDATE rooms
        SET ${setClauses.join(", ")}
-       WHERE id = $${params.length}
+       WHERE id = $${propertyParam - 1}
+         AND property_id = $${propertyParam}
        RETURNING
          id, created_at, updated_at, property_id, room_number, floor,
          room_type, status, oos_reason, return_date, priority, notes,
@@ -2531,7 +2595,7 @@ function buildChecklistSummary(rows) {
   return summary;
 }
 
-async function handleGetRoomChecklist(req, res, roomId) {
+async function handleGetRoomChecklist(req, res, roomId, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!/^\d+$/.test(roomId)) {
@@ -2545,7 +2609,13 @@ async function handleGetRoomChecklist(req, res, roomId) {
   }
 
   try {
-    const roomResult = await pool.query("SELECT id FROM rooms WHERE id = $1", [roomId]);
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const roomResult = await pool.query(
+      "SELECT id FROM rooms WHERE id = $1 AND property_id = $2",
+      [roomId, scopedPropertyId]
+    );
     if (roomResult.rowCount === 0) {
       sendJson(res, 404, { ok: false, error: "Room not found." });
       return;
@@ -2583,7 +2653,7 @@ async function handleGetRoomChecklist(req, res, roomId) {
   }
 }
 
-async function handleChecklistSummaries(req, res) {
+async function handleChecklistSummaries(req, res, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!pool || !databaseReady) {
@@ -2592,6 +2662,9 @@ async function handleChecklistSummaries(req, res) {
   }
 
   try {
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
     const [totalResult, perRoomResult] = await Promise.all([
       pool.query("SELECT COUNT(*) AS total FROM room_checklist_items WHERE active = TRUE"),
       pool.query(
@@ -2601,7 +2674,11 @@ async function handleChecklistSummaries(req, res) {
            COUNT(*) FILTER (WHERE r.status = 'Needs Repair') AS needs_repair
          FROM room_checklist_responses r
          JOIN room_checklist_items i ON i.id = r.item_id AND i.active = TRUE
+         JOIN rooms rm ON rm.id = r.room_id
+         WHERE rm.property_id = $1
          GROUP BY r.room_id`
+        ,
+        [scopedPropertyId]
       )
     ]);
 
@@ -2624,7 +2701,7 @@ async function handleChecklistSummaries(req, res) {
   }
 }
 
-async function handleReadyForReturn(req, res, roomId) {
+async function handleReadyForReturn(req, res, roomId, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!/^\d+$/.test(roomId)) {
@@ -2657,7 +2734,13 @@ async function handleReadyForReturn(req, res, roomId) {
   }
 
   try {
-    const roomResult = await pool.query("SELECT id FROM rooms WHERE id = $1", [roomId]);
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const roomResult = await pool.query(
+      "SELECT id FROM rooms WHERE id = $1 AND property_id = $2",
+      [roomId, scopedPropertyId]
+    );
     if (roomResult.rowCount === 0) {
       sendJson(res, 404, { ok: false, error: "Room not found." });
       return;
@@ -2695,11 +2778,12 @@ async function handleReadyForReturn(req, res, roomId) {
            status = CASE WHEN $2 THEN 'In Service' ELSE status END,
            updated_at = NOW()
        WHERE id = $3
+         AND property_id = $4
        RETURNING
          id, created_at, updated_at, property_id, room_number, floor,
          room_type, status, oos_reason, return_date, priority, notes,
          ready_for_return_at, ready_for_return_note`,
-      [note, setInService, roomId]
+      [note, setInService, roomId, scopedPropertyId]
     );
 
     sendJson(res, 200, { ok: true, room: mapRoom(updateResult.rows[0]) });
@@ -2709,7 +2793,7 @@ async function handleReadyForReturn(req, res, roomId) {
   }
 }
 
-async function handleRepairsReport(req, res, parsedUrl) {
+async function handleRepairsReport(req, res, parsedUrl, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!pool || !databaseReady) {
@@ -2717,8 +2801,18 @@ async function handleRepairsReport(req, res, parsedUrl) {
     return;
   }
 
-  const filters = ["r.status = 'Needs Repair'"];
-  const params = [];
+  let scopedPropertyId;
+  try {
+    scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+  } catch (error) {
+    console.error("Resolve property for repairs error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to load property." });
+    return;
+  }
+  if (!scopedPropertyId) return;
+
+  const filters = ["r.status = 'Needs Repair'", "rm.property_id = $1"];
+  const params = [scopedPropertyId];
 
   function addFilter(sql, value) {
     params.push(value);
@@ -2781,10 +2875,13 @@ async function handleRepairsReport(req, res, parsedUrl) {
          FROM rooms rm
          JOIN room_checklist_responses r ON r.room_id = rm.id
          JOIN room_checklist_items i ON i.id = r.item_id AND i.active = TRUE
+         WHERE rm.property_id = $1
          GROUP BY rm.id
          HAVING COUNT(*) FILTER (WHERE r.status = 'Needs Repair') = 0
          ORDER BY rm.floor ASC NULLS LAST, rm.room_number ASC
          LIMIT 200`
+        ,
+        [scopedPropertyId]
       )
     ]);
 
@@ -2823,7 +2920,7 @@ async function handleRepairsReport(req, res, parsedUrl) {
   }
 }
 
-async function handleSaveRoomChecklist(req, res, roomId) {
+async function handleSaveRoomChecklist(req, res, roomId, propertyId = null) {
   if (!requireAdmin(req, res)) return;
 
   if (!/^\d+$/.test(roomId)) {
@@ -2875,7 +2972,13 @@ async function handleSaveRoomChecklist(req, res, roomId) {
   }
 
   try {
-    const roomResult = await pool.query("SELECT id FROM rooms WHERE id = $1", [roomId]);
+    const scopedPropertyId = await resolveAdminPropertyId(res, propertyId);
+    if (!scopedPropertyId) return;
+
+    const roomResult = await pool.query(
+      "SELECT id FROM rooms WHERE id = $1 AND property_id = $2",
+      [roomId, scopedPropertyId]
+    );
     if (roomResult.rowCount === 0) {
       sendJson(res, 404, { ok: false, error: "Room not found." });
       return;
@@ -4228,6 +4331,66 @@ const server = http.createServer((req, res) => {
   const propertyConsultantsMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/consultants$/);
   if (req.method === "GET" && propertyConsultantsMatch) {
     handleListPropertyConsultants(req, res, propertyConsultantsMatch[1]);
+    return;
+  }
+
+  const propertySummaryMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/summary$/);
+  if (req.method === "GET" && propertySummaryMatch) {
+    handlePropertySummary(req, res, propertySummaryMatch[1]);
+    return;
+  }
+
+  const propertyRoomsMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/rooms$/);
+  if (req.method === "GET" && propertyRoomsMatch) {
+    handleListRooms(req, res, parsedUrl, propertyRoomsMatch[1]);
+    return;
+  }
+
+  const propertyChecklistSummariesMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/properties\/(\d+)\/rooms\/checklist-summaries$/
+  );
+  if (req.method === "GET" && propertyChecklistSummariesMatch) {
+    handleChecklistSummaries(req, res, propertyChecklistSummariesMatch[1]);
+    return;
+  }
+
+  const propertyRepairsMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/repairs$/);
+  if (req.method === "GET" && propertyRepairsMatch) {
+    handleRepairsReport(req, res, parsedUrl, propertyRepairsMatch[1]);
+    return;
+  }
+
+  const propertyRoomStatusMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/properties\/(\d+)\/rooms\/(\d+)\/status$/
+  );
+  if (req.method === "PATCH" && propertyRoomStatusMatch) {
+    handleUpdateRoomStatus(req, res, propertyRoomStatusMatch[2], propertyRoomStatusMatch[1]);
+    return;
+  }
+
+  const propertyRoomChecklistMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/properties\/(\d+)\/rooms\/(\d+)\/checklist$/
+  );
+  if (req.method === "GET" && propertyRoomChecklistMatch) {
+    handleGetRoomChecklist(req, res, propertyRoomChecklistMatch[2], propertyRoomChecklistMatch[1]);
+    return;
+  }
+  if (req.method === "PATCH" && propertyRoomChecklistMatch) {
+    handleSaveRoomChecklist(req, res, propertyRoomChecklistMatch[2], propertyRoomChecklistMatch[1]);
+    return;
+  }
+
+  const propertyReadyForReturnMatch = parsedUrl.pathname.match(
+    /^\/api\/admin\/properties\/(\d+)\/rooms\/(\d+)\/ready-for-return$/
+  );
+  if (req.method === "POST" && propertyReadyForReturnMatch) {
+    handleReadyForReturn(req, res, propertyReadyForReturnMatch[2], propertyReadyForReturnMatch[1]);
+    return;
+  }
+
+  const propertyRoomUpdateMatch = parsedUrl.pathname.match(/^\/api\/admin\/properties\/(\d+)\/rooms\/(\d+)$/);
+  if (req.method === "PATCH" && propertyRoomUpdateMatch) {
+    handleUpdateRoom(req, res, propertyRoomUpdateMatch[2], propertyRoomUpdateMatch[1]);
     return;
   }
 
