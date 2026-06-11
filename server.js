@@ -1225,6 +1225,14 @@ async function initializeDatabase() {
         ('General Notes',            'Other observations',                               130)
       ON CONFLICT (group_name, label) DO NOTHING
       `
+    ),
+    await runMigration(
+      "add room ready-for-return columns",
+      `
+      ALTER TABLE rooms
+        ADD COLUMN IF NOT EXISTS ready_for_return_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS ready_for_return_note TEXT
+      `
     )
   );
 
@@ -2197,7 +2205,9 @@ function mapRoom(row) {
     oosReason: row.oos_reason,
     returnDate: row.return_date,
     priority: row.priority,
-    notes: row.notes
+    notes: row.notes,
+    readyForReturnAt: row.ready_for_return_at || null,
+    readyForReturnNote: row.ready_for_return_note || null
   };
 }
 
@@ -2329,7 +2339,7 @@ async function handleListRooms(req, res, parsedUrl) {
       `SELECT
          r.id, r.created_at, r.updated_at, r.property_id, r.room_number,
          r.floor, r.room_type, r.status, r.oos_reason, r.return_date,
-         r.priority, r.notes
+         r.priority, r.notes, r.ready_for_return_at, r.ready_for_return_note
        FROM rooms r
        ${whereClause}
        ORDER BY r.floor ASC, r.room_number ASC
@@ -2387,7 +2397,8 @@ async function handleUpdateRoomStatus(req, res, roomId) {
        WHERE id = $2
        RETURNING
          id, created_at, updated_at, property_id, room_number, floor,
-         room_type, status, oos_reason, return_date, priority, notes`,
+         room_type, status, oos_reason, return_date, priority, notes,
+         ready_for_return_at, ready_for_return_note`,
       [status, roomId]
     );
 
@@ -2487,7 +2498,8 @@ async function handleUpdateRoom(req, res, roomId) {
        WHERE id = $${params.length}
        RETURNING
          id, created_at, updated_at, property_id, room_number, floor,
-         room_type, status, oos_reason, return_date, priority, notes`,
+         room_type, status, oos_reason, return_date, priority, notes,
+         ready_for_return_at, ready_for_return_note`,
       params
     );
 
@@ -2612,6 +2624,91 @@ async function handleChecklistSummaries(req, res) {
   }
 }
 
+async function handleReadyForReturn(req, res, roomId) {
+  if (!requireAdmin(req, res)) return;
+
+  if (!/^\d+$/.test(roomId)) {
+    sendJson(res, 400, { ok: false, error: "Invalid room ID." });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: "Invalid JSON request." });
+    return;
+  }
+
+  const note = cleanString(payload.note);
+  if (!note) {
+    sendJson(res, 400, { ok: false, error: "A final note is required to mark a room ready for return." });
+    return;
+  }
+  if (note.length > 1000) {
+    sendJson(res, 400, { ok: false, error: "Note exceeds maximum length of 1000 characters." });
+    return;
+  }
+  const setInService = payload.setInService === true;
+
+  if (!pool || !databaseReady) {
+    sendJson(res, 503, { ok: false, error: "Database not configured." });
+    return;
+  }
+
+  try {
+    const roomResult = await pool.query("SELECT id FROM rooms WHERE id = $1", [roomId]);
+    if (roomResult.rowCount === 0) {
+      sendJson(res, 404, { ok: false, error: "Room not found." });
+      return;
+    }
+
+    const eligibility = await pool.query(
+      `SELECT
+         COUNT(*) AS answered,
+         COUNT(*) FILTER (WHERE r.status = 'Needs Repair') AS repairs
+       FROM room_checklist_responses r
+       JOIN room_checklist_items i ON i.id = r.item_id AND i.active = TRUE
+       WHERE r.room_id = $1`,
+      [roomId]
+    );
+
+    const answered = parseInt(eligibility.rows[0].answered, 10);
+    const repairs = parseInt(eligibility.rows[0].repairs, 10);
+
+    if (repairs > 0) {
+      sendJson(res, 400, {
+        ok: false,
+        error: `Ready blocked: ${repairs} repair item${repairs === 1 ? "" : "s"} remain.`
+      });
+      return;
+    }
+    if (answered === 0) {
+      sendJson(res, 400, { ok: false, error: "Ready blocked: checklist not started." });
+      return;
+    }
+
+    const updateResult = await pool.query(
+      `UPDATE rooms
+       SET ready_for_return_at = NOW(),
+           ready_for_return_note = $1,
+           status = CASE WHEN $2 THEN 'In Service' ELSE status END,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING
+         id, created_at, updated_at, property_id, room_number, floor,
+         room_type, status, oos_reason, return_date, priority, notes,
+         ready_for_return_at, ready_for_return_note`,
+      [note, setInService, roomId]
+    );
+
+    sendJson(res, 200, { ok: true, room: mapRoom(updateResult.rows[0]) });
+  } catch (error) {
+    console.error("Ready for return error:", error.message);
+    sendJson(res, 500, { ok: false, error: "Unable to mark room ready for return." });
+  }
+}
+
 async function handleRepairsReport(req, res, parsedUrl) {
   if (!requireAdmin(req, res)) return;
 
@@ -2650,7 +2747,7 @@ async function handleRepairsReport(req, res, parsedUrl) {
   }
 
   try {
-    const [repairsResult, groupsResult] = await Promise.all([
+    const [repairsResult, groupsResult, candidatesResult] = await Promise.all([
       pool.query(
         `SELECT
            rm.id AS room_id, rm.room_number, rm.floor, rm.status AS room_status,
@@ -2671,6 +2768,23 @@ async function handleRepairsReport(req, res, parsedUrl) {
          WHERE active = TRUE
          GROUP BY group_name
          ORDER BY MIN(sort_order)`
+      ),
+      // Return candidates: rooms with checklist activity and zero open repairs.
+      // Intentionally unaffected by the repair filters above.
+      pool.query(
+        `SELECT
+           rm.id AS room_id, rm.room_number, rm.floor, rm.status AS room_status,
+           rm.priority AS room_priority, rm.oos_reason,
+           rm.ready_for_return_at, rm.ready_for_return_note,
+           COUNT(*) AS answered,
+           MAX(r.updated_at) AS last_activity
+         FROM rooms rm
+         JOIN room_checklist_responses r ON r.room_id = rm.id
+         JOIN room_checklist_items i ON i.id = r.item_id AND i.active = TRUE
+         GROUP BY rm.id
+         HAVING COUNT(*) FILTER (WHERE r.status = 'Needs Repair') = 0
+         ORDER BY rm.floor ASC NULLS LAST, rm.room_number ASC
+         LIMIT 200`
       )
     ]);
 
@@ -2689,6 +2803,18 @@ async function handleRepairsReport(req, res, parsedUrl) {
         item: row.label,
         notes: row.response_notes,
         updatedAt: row.updated_at
+      })),
+      candidates: candidatesResult.rows.map((row) => ({
+        roomId: row.room_id,
+        roomNumber: row.room_number,
+        floor: row.floor,
+        roomStatus: row.room_status,
+        roomPriority: row.room_priority,
+        oosReason: row.oos_reason,
+        answered: parseInt(row.answered, 10),
+        lastActivity: row.last_activity,
+        readyForReturnAt: row.ready_for_return_at,
+        readyForReturnNote: row.ready_for_return_note
       }))
     });
   } catch (error) {
@@ -4162,6 +4288,12 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "PATCH" && roomChecklistMatch) {
     handleSaveRoomChecklist(req, res, roomChecklistMatch[1]);
+    return;
+  }
+
+  const readyForReturnMatch = parsedUrl.pathname.match(/^\/api\/admin\/property\/rooms\/(\d+)\/ready-for-return$/);
+  if (req.method === "POST" && readyForReturnMatch) {
+    handleReadyForReturn(req, res, readyForReturnMatch[1]);
     return;
   }
 

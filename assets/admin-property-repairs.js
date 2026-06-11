@@ -150,6 +150,34 @@
       .join("");
   }
 
+  function renderCandidates(candidates) {
+    const el = document.querySelector("#return-candidates");
+    if (!el) return;
+    if (candidates.length === 0) {
+      el.innerHTML = '<p class="empty-detail">No rooms currently qualify — a room qualifies once its checklist has activity and no open repairs.</p>';
+      return;
+    }
+    el.innerHTML = candidates
+      .map(
+        (c) => `
+        <article class="repair-card">
+          <header class="repair-card-header">
+            <div class="repair-card-room">
+              <span class="repair-room-number">${escapeHtml(c.roomNumber)}</span>
+              <span class="repair-room-meta">${c.floor != null ? `Floor ${c.floor}` : ""}${c.roomPriority ? ` · ${escapeHtml(c.roomPriority)} priority` : ""}</span>
+            </div>
+            <span class="status-pill">${escapeHtml(c.roomStatus)}</span>
+          </header>
+          <p class="candidate-state${c.readyForReturnAt ? " marked" : ""}">
+            ${c.readyForReturnAt ? `Marked ready ${escapeHtml(formatDate(c.readyForReturnAt))}` : "Eligible — no open repairs"}
+          </p>
+          ${c.readyForReturnNote ? `<p class="repair-item-notes">${escapeHtml(c.readyForReturnNote)}</p>` : ""}
+          <p class="repair-item-updated">${c.answered} checklist item${c.answered === 1 ? "" : "s"} answered${c.lastActivity ? ` · last activity ${escapeHtml(formatDate(c.lastActivity))}` : ""}</p>
+        </article>`
+      )
+      .join("");
+  }
+
   async function loadReport() {
     setStatus(loadStatus, "Loading report...", "");
     try {
@@ -159,6 +187,7 @@
       const repairs = payload.repairs || [];
       const roomCount = new Set(repairs.map((r) => r.roomId)).size;
       renderReport(repairs);
+      renderCandidates(payload.candidates || []);
       showDashboard();
       setStatus(
         loadStatus,

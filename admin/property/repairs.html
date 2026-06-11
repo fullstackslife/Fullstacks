@@ -6,8 +6,8 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>Repair Needs | FullStacks.ink</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=admin-20260613" />
-    <script src="/assets/admin-property-repairs.js?v=admin-20260613" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=admin-20260614" />
+    <script src="/assets/admin-property-repairs.js?v=admin-20260614" defer></script>
   </head>
   <body class="admin-page">
     <header class="site-header" id="admin-site-header" hidden>
@@ -105,7 +105,16 @@
           <p class="form-status" id="admin-load-status" role="status" aria-live="polite"></p>
         </div>
 
-        <section class="repairs-report" id="repairs-report" aria-label="Repair needs by room"></section>
+        <section class="report-block" aria-labelledby="repairs-heading">
+          <h2 class="report-heading" id="repairs-heading">Open Repairs</h2>
+          <div class="repairs-report" id="repairs-report"></div>
+        </section>
+
+        <section class="report-block" aria-labelledby="candidates-heading">
+          <h2 class="report-heading" id="candidates-heading">Return Candidates</h2>
+          <p class="report-subtext">Rooms with checklist activity and no open repairs. Not affected by the filters above.</p>
+          <div class="repairs-report" id="return-candidates"></div>
+        </section>
       </section>
     </main>
   </body>

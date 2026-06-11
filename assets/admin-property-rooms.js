@@ -12,6 +12,7 @@
   let walkIndex = 0;
   let walkChecklistOpen = false;
   let walkDetailsOpen = false;
+  let walkReturnOpen = false;
   const checklistShortLabels = { "OK": "OK", "Needs Repair": "Repair", "Complete": "Done", "N/A": "N/A" };
   const checklistStatuses = ["OK", "Needs Repair", "Complete", "N/A"];
   const checklistCache = new Map(); // roomId -> [{id, group, label, status, notes}]
@@ -456,6 +457,10 @@
             <input id="room-return-date" type="date" value="${escapeHtml(returnDateValue)}" />
           </div>
         </details>
+        <details class="walk-section" id="walk-return-section"${walkReturnOpen ? " open" : ""}>
+          <summary>Return <span class="walk-section-hint" id="walk-return-state">&hellip;</span></summary>
+          <div class="walk-section-content" id="walk-return-body"></div>
+        </details>
       </div>
       <div class="walk-actions">
         <p class="form-status" id="detail-save-status" role="status" aria-live="polite"></p>
@@ -473,6 +478,7 @@
           </div>
         </div>
       </div>`;
+    renderWalkReturn(room);
     loadWalkChecklist(room.id);
   }
 
@@ -554,6 +560,8 @@
       }
       const progress = walkSection.querySelector("#walk-checklist-progress");
       if (progress) progress.textContent = "load failed";
+      const returnState = walkSection.querySelector("#walk-return-state");
+      if (returnState) returnState.textContent = "checklist unavailable";
     }
   }
 
@@ -570,6 +578,8 @@
     const progress = walkSection.querySelector("#walk-checklist-progress");
     const items = checklistCache.get(roomId) || [];
     if (progress) progress.textContent = checklistProgressText(items);
+    const currentRoom = rooms[walkIndex];
+    if (currentRoom && currentRoom.id === roomId) renderWalkReturn(currentRoom);
     if (!body) return;
     if (items.length === 0) {
       body.innerHTML = '<p class="walk-check-state">No checklist items configured.</p>';
@@ -625,7 +635,10 @@
     }
     dirty.add(itemId);
     const progress = walkSection.querySelector("#walk-checklist-progress");
-    if (progress && currentWalkRoomId() === roomId) progress.textContent = checklistProgressText(items);
+    if (progress && currentWalkRoomId() === roomId) {
+      progress.textContent = checklistProgressText(items);
+      renderWalkReturn(rooms[walkIndex]);
+    }
   }
 
   async function saveWalkChecklist(roomId) {
@@ -656,6 +669,97 @@
   async function saveWalkRoom(roomId) {
     const results = await Promise.all([saveRoomDetails(roomId), saveWalkChecklist(roomId)]);
     return results.every(Boolean);
+  }
+
+  // ── Ready for Return ───────────────────────────────────────────────────
+  // Eligibility mirrors the server rule: no Needs Repair responses and at
+  // least one answered item. Computed from the cached checklist (including
+  // staged taps); submit saves staged checklist changes first so the
+  // server's check sees the same state.
+
+  function walkReturnEligibility(room) {
+    if (room.readyForReturnAt) {
+      return { state: "marked", text: `Marked ready ${formatDate(room.readyForReturnAt)}` };
+    }
+    const items = checklistCache.get(room.id);
+    if (!items) return { state: "loading", text: "checking..." };
+    const repairs = items.filter((it) => it.status === "Needs Repair").length;
+    const answered = items.filter((it) => it.status).length;
+    if (repairs > 0) {
+      return { state: "blocked", text: `Ready blocked: ${repairs} repair item${repairs === 1 ? "" : "s"} remain` };
+    }
+    if (answered === 0) {
+      return { state: "blocked", text: "Ready blocked: checklist not started" };
+    }
+    return { state: "eligible", text: "Eligible for return" };
+  }
+
+  function renderWalkReturn(room) {
+    const stateEl = walkSection.querySelector("#walk-return-state");
+    const body = walkSection.querySelector("#walk-return-body");
+    if (!stateEl || !body || !room) return;
+    const eligibility = walkReturnEligibility(room);
+    stateEl.textContent = eligibility.text;
+    stateEl.className = `walk-section-hint walk-return-${eligibility.state}`;
+
+    if (eligibility.state === "marked") {
+      body.innerHTML = `
+        <p class="walk-return-marked">Marked ready for return on ${escapeHtml(formatDate(room.readyForReturnAt))}.</p>
+        ${room.readyForReturnNote ? `<p class="walk-return-note-text">${escapeHtml(room.readyForReturnNote)}</p>` : ""}`;
+      return;
+    }
+    if (eligibility.state !== "eligible") {
+      body.innerHTML = `<p class="walk-check-state">${escapeHtml(eligibility.text)}. Resolve checklist items, then save, to enable Ready for Return.</p>`;
+      return;
+    }
+    body.innerHTML = `
+      <div class="walk-fields">
+        <label for="walk-return-note"><span>Final note (required)</span></label>
+        <textarea id="walk-return-note" maxlength="1000" rows="2" placeholder="Condition and basis for returning this room..."></textarea>
+        <label class="walk-return-inservice">
+          <input type="checkbox" id="walk-return-inservice" checked />
+          <span>Set status to In Service</span>
+        </label>
+        <button class="button primary" id="walk-return-submit" type="button">Mark Ready for Return</button>
+      </div>`;
+  }
+
+  async function submitReadyForReturn(room) {
+    const statusEl = walkSection.querySelector("#detail-save-status");
+    const noteEl = walkSection.querySelector("#walk-return-note");
+    const note = noteEl ? noteEl.value.trim() : "";
+    if (!note) {
+      setStatus(statusEl, "A final note is required to mark ready for return.", "error");
+      if (noteEl) noteEl.focus();
+      return;
+    }
+    const inServiceEl = walkSection.querySelector("#walk-return-inservice");
+    const setInService = !!(inServiceEl && inServiceEl.checked);
+    const btn = walkSection.querySelector("#walk-return-submit");
+    if (btn) btn.disabled = true;
+    setStatus(statusEl, "Marking ready...", "");
+    try {
+      const checklistSaved = await saveWalkChecklist(room.id);
+      if (!checklistSaved) return;
+      const payload = await apiFetch(`/api/admin/property/rooms/${room.id}/ready-for-return`, {
+        method: "POST",
+        body: JSON.stringify({ note, setInService })
+      });
+      rooms = rooms.map((r) => (r.id === room.id ? payload.room : r));
+      const updated = payload.room;
+      walkSection.querySelectorAll(".walk-status-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.status === updated.status);
+      });
+      const topStatus = walkSection.querySelector("#walk-top-status");
+      if (topStatus) topStatus.textContent = updated.status;
+      renderCounts();
+      renderWalkReturn(updated);
+      setStatus(statusEl, "Room marked ready for return.", "success");
+    } catch (error) {
+      setStatus(statusEl, error.message, "error");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   // Unsaved-change detection for the Next guard: staged checklist taps, or
@@ -811,7 +915,9 @@
         return;
       }
       const id = event.target.id;
-      if (id === "walk-check-retry" && room) {
+      if (id === "walk-return-submit" && room) {
+        submitReadyForReturn(room);
+      } else if (id === "walk-check-retry" && room) {
         loadWalkChecklist(room.id);
       } else if (id === "walk-exit" || id === "walk-exit-done") {
         exitWalkMode();
@@ -862,6 +968,7 @@
     walkSection.addEventListener("toggle", (event) => {
       if (event.target.id === "walk-checklist-section") walkChecklistOpen = event.target.open;
       if (event.target.id === "walk-details-section") walkDetailsOpen = event.target.open;
+      if (event.target.id === "walk-return-section") walkReturnOpen = event.target.open;
     }, true);
   }
 
